@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+contracts/cache/
+contracts/out/
+backend/node_modules/
+backend/dist/
+frontend/node_modules/
+frontend/.next/
