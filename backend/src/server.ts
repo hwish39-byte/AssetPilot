@@ -1,19 +1,19 @@
 import "dotenv/config";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { analyzePortfolio } from "./agents/analyst.js";
-import { executionSummary } from "./agents/execution.js";
-import { reviewRisk } from "./agents/risk.js";
-import { generateStrategy } from "./agents/strategy.js";
+import { runWorkflow } from "./agents/orchestrator.js";
 import { OpenAiProvider } from "./llm.js";
 import {
-  assertAnalyzeRequest,
-  assertExecutionSummaryRequest,
-  assertGenerateStrategyRequest,
-  assertReviewRiskRequest,
+  assertOrchestratorRequest,
   strategyJsonSchema,
+  strategyJsonV2Schema,
   ValidationError
 } from "./validation.js";
+
+const legacyEndpointRemoved = {
+  error: "LEGACY_ENDPOINT_REMOVED",
+  message: "This legacy endpoint has been removed. Use POST /api/workflow/run."
+};
 
 export function createApp() {
   const app = express();
@@ -27,36 +27,19 @@ export function createApp() {
   });
 
   app.get("/api/strategy-schema", (_req, res) => {
-    res.json(strategyJsonSchema);
+    res.json({ legacy: strategyJsonSchema, v2: strategyJsonV2Schema });
   });
 
-  app.post("/api/analyze", async (req, res, next) => {
-    try {
-      res.json(await analyzePortfolio(assertAnalyzeRequest(req.body), llm));
-    } catch (error) {
-      next(error);
-    }
-  });
+  // Legacy MVP endpoints are intentionally removed from the public API.
+  app.post("/api/analyze", (_req, res) => res.status(410).json(legacyEndpointRemoved));
+  app.post("/api/generate-strategy", (_req, res) => res.status(410).json(legacyEndpointRemoved));
+  app.post("/api/review-risk", (_req, res) => res.status(410).json(legacyEndpointRemoved));
+  app.post("/api/execution-summary", (_req, res) => res.status(410).json(legacyEndpointRemoved));
 
-  app.post("/api/generate-strategy", async (req, res, next) => {
+  // V2 typed workflow endpoint.
+  app.post("/api/workflow/run", async (req, res, next) => {
     try {
-      res.json(await generateStrategy(assertGenerateStrategyRequest(req.body), llm));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/review-risk", async (req, res, next) => {
-    try {
-      res.json(await reviewRisk(assertReviewRiskRequest(req.body), llm));
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post("/api/execution-summary", (req, res, next) => {
-    try {
-      res.json(executionSummary(assertExecutionSummaryRequest(req.body)));
+      res.json(await runWorkflow(assertOrchestratorRequest(req.body), llm));
     } catch (error) {
       next(error);
     }

@@ -1,4 +1,13 @@
-import type { AgentStep, AnalystResult, PolicyDraft, PortfolioAsset, RiskReview, Strategy, StrategyReceipt } from "@/types/assetpilot";
+import type {
+  AgentStep,
+  AnalystResult,
+  OrchestratorResponse,
+  PolicyDraft,
+  PortfolioAsset,
+  RiskReview,
+  Strategy,
+  StrategyReceipt
+} from "@/types/assetpilot";
 
 export const ASSET_COLORS: Record<string, string> = {
   mNVDA: "#14b8a6",
@@ -79,6 +88,235 @@ export const fallbackRiskReview: RiskReview = {
   riskScoreAfter: 61,
   notes: ["mNVDA 集中度降低", "AI 敞口降低", "USDC 缓冲提高"],
   warnings: []
+};
+
+export const fallbackWorkflowResponse: OrchestratorResponse = {
+  current_state: "payload_prepared",
+  next_agent: "user",
+  next_user_action: "review_execution_plan",
+  reason: "Dry-run execution plan prepared.",
+  analyse_agent: {
+    portfolio_snapshot: {
+      total_value_usd: 10000,
+      asset_allocation: { mNVDA: 0.52, mAAPL: 0.18, mSPY: 0.22, USDC: 0.08 },
+      chain_exposure: { "monad-testnet": 1 },
+      protocol_exposure: { wallet: 1 },
+      stablecoin_ratio: 0.08,
+      leverage_ratio: null,
+      largest_position: { symbol: "mNVDA", value_usd: 5200, weight: 0.52 }
+    },
+    risk_context: {
+      risk_level: "high",
+      risk_factors: [
+        {
+          factor_id: "concentration_risk",
+          category: "portfolio_concentration",
+          severity: "high",
+          description: "Largest position concentration is elevated.",
+          evidence: ["mNVDA weight is 52%"],
+          affected_assets: ["mNVDA"]
+        },
+        {
+          factor_id: "ai_exposure_risk",
+          category: "sector_exposure",
+          severity: "high",
+          description: "AI exposure is elevated.",
+          evidence: ["AI exposure is 76%"]
+        },
+        {
+          factor_id: "low_stablecoin_buffer",
+          category: "liquidity_buffer",
+          severity: "medium",
+          description: "Stablecoin buffer is below target.",
+          evidence: ["Stablecoin ratio is 8%"],
+          affected_assets: ["USDC"]
+        }
+      ],
+      constraints_for_strategy: [
+        {
+          constraint: "max_single_asset_ratio <= 0.40",
+          reason: "Largest position concentration is high",
+          hard: false
+        },
+        {
+          constraint: "stablecoin_ratio_after >= 0.15",
+          reason: "Current stablecoin buffer is low",
+          hard: false
+        },
+        {
+          constraint: "do_not_buy mTSLA",
+          reason: "User explicitly blocked mTSLA",
+          hard: true
+        }
+      ]
+    },
+    summary: fallbackAnalyst.summary
+  },
+  strategy_agent: {
+    status: "generated",
+    validation_errors: [],
+    strategy: {
+      strategy_id: "strategy_rebalance_ai_concentration_mock",
+      objective: {
+        type: "rebalance",
+        description: "Reduce AI concentration while keeping broad market exposure"
+      },
+      constraints: {
+        max_slippage_bps: 100,
+        max_gas_usd: null,
+        min_stablecoin_ratio: 0.15,
+        max_single_asset_ratio: 0.4,
+        allowed_chains: ["monad-testnet"],
+        allowed_protocols: ["mock_amm"],
+        denied_assets: ["mTSLA"]
+      },
+      actions: [
+        {
+          action_id: "act_1_reduce_mnvda",
+          type: "swap",
+          chain: "monad-testnet",
+          protocol: "mock_amm",
+          from_asset: "mNVDA",
+          to_asset: "USDC",
+          asset: null,
+          amount: { mode: "usd_value", value: 300, unit: "USD" },
+          constraints: { max_slippage_bps: 100 },
+          preconditions: ["mNVDA is allowed by policy", "USDC is allowed by policy"],
+          expected_effects: ["Reduce mNVDA concentration", "Increase stablecoin buffer"],
+          rationale: "mNVDA is the largest AI-linked position"
+        },
+        {
+          action_id: "act_2_rebalance_to_mspy",
+          type: "swap",
+          chain: "monad-testnet",
+          protocol: "mock_amm",
+          from_asset: "USDC",
+          to_asset: "mSPY",
+          asset: null,
+          amount: { mode: "usd_value", value: 200, unit: "USD" },
+          constraints: { max_slippage_bps: 100 },
+          preconditions: ["USDC is allowed by policy", "mSPY is allowed by policy"],
+          expected_effects: ["Keep broad market exposure", "Reduce single asset concentration"],
+          rationale: "mSPY keeps broad market exposure after reducing AI-linked concentration"
+        }
+      ],
+      success_criteria: {
+        risk_score_after: "<= current risk score",
+        stablecoin_ratio_after: ">= current stablecoin ratio"
+      },
+      assumptions: [
+        "MVP uses mock tokenized assets",
+        "Execution will be reviewed by Risk Agent before any payload is prepared"
+      ]
+    }
+  },
+  risk_agent: {
+    decision: "approve",
+    risk_score: 70,
+    blocking_issues: [],
+    warnings: [],
+    approved_action_ids: ["act_1_reduce_mnvda", "act_2_rebalance_to_mspy"],
+    revised_strategy_patch: [],
+    human_readable_summary: "策略通过规则风控审核，可进入 Execution Agent 准备 dry-run。"
+  },
+  execution_agent: {
+    status: "dry_run_prepared",
+    reason: "Dry-run execution plan prepared.",
+    execution_plan: {
+      execution_plan_id: "execution_plan_mock",
+      status: "simulation_required",
+      steps: [
+        {
+          step_id: "step_1_act_1_reduce_mnvda",
+          action_id: "act_1_reduce_mnvda",
+          type: "swap",
+          chain: "monad-testnet",
+          protocol: "mock_amm",
+          contract: null,
+          asset_in: "mNVDA",
+          asset_out: "USDC",
+          amount_in: "300 USD",
+          min_amount_out: "297",
+          calldata: null,
+          value: "0",
+          human_readable: "Swap 300 USD worth of mNVDA to USDC on monad-testnet via mock_amm. Prepared mock_amm contract payload descriptor; calldata is not generated in dry-run.",
+          requires_user_signature: true,
+          contract_payload: {
+            action_id: "act_1_reduce_mnvda",
+            adapter: "mock_amm",
+            contract_method: "executeStrategy",
+            sell_token_symbol: "mNVDA",
+            buy_token_symbol: "USDC",
+            sell_amount_usd: 300,
+            expected_buy_amount: 300,
+            min_buy_amount: 297,
+            max_slippage_bps: 100,
+            human_readable: "Contract payload: executeStrategy swap 300 USD of mNVDA to at least 297 USDC via mock_amm."
+          }
+        },
+        {
+          step_id: "step_2_act_2_rebalance_to_mspy",
+          action_id: "act_2_rebalance_to_mspy",
+          type: "swap",
+          chain: "monad-testnet",
+          protocol: "mock_amm",
+          contract: null,
+          asset_in: "USDC",
+          asset_out: "mSPY",
+          amount_in: "200 USD",
+          min_amount_out: "0.3564",
+          calldata: null,
+          value: "0",
+          human_readable: "Swap 200 USD worth of USDC to mSPY on monad-testnet via mock_amm. Prepared mock_amm contract payload descriptor; calldata is not generated in dry-run.",
+          requires_user_signature: true,
+          contract_payload: {
+            action_id: "act_2_rebalance_to_mspy",
+            adapter: "mock_amm",
+            contract_method: "executeStrategy",
+            sell_token_symbol: "USDC",
+            buy_token_symbol: "mSPY",
+            sell_amount_usd: 200,
+            expected_buy_amount: 0.363636,
+            min_buy_amount: 0.36,
+            max_slippage_bps: 100,
+            human_readable: "Contract payload: executeStrategy swap 200 USD of USDC to at least 0.36 mSPY via mock_amm."
+          }
+        }
+      ],
+      simulation: {
+        required: true,
+        status: "not_run",
+        summary: "Simulation is required before user confirmation."
+      },
+      user_confirmation_summary: {
+        chains: ["monad-testnet"],
+        protocols: ["mock_amm"],
+        assets_spent: { mNVDA: "300 USD", USDC: "200 USD" },
+        assets_received_expected: {
+          USDC: ">= 297",
+          mSPY: ">= 0.36"
+        },
+        max_slippage_bps: 100,
+        estimated_gas_usd: null,
+        approval_requests: [
+          {
+            asset: "mNVDA",
+            spender: "StrategyExecutor",
+            amount: "exact",
+            reason: "Required for executeStrategy swap action"
+          },
+          {
+            asset: "USDC",
+            spender: "StrategyExecutor",
+            amount: "exact",
+            reason: "Required for executeStrategy swap action"
+          }
+        ],
+        worst_case_summary: "Worst case before revert is approximately 1% slippage, subject to adapter quote."
+      },
+      blocked_reason: null
+    }
+  }
 };
 
 export const mockReceipts: StrategyReceipt[] = [
