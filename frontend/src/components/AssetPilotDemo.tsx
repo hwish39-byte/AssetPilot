@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Clock, CopyCheck, Loader2, Play, ShieldCheck, Wallet } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { parseUnits, type Address, type Hex } from "viem";
-import { useAccount, useConnect, useDisconnect, useWriteContract } from "wagmi";
+import { formatUnits, parseEventLogs, parseUnits, type Address, type Hex } from "viem";
+import { useAccount, useConnect, useDisconnect, usePublicClient, useWriteContract } from "wagmi";
 import { runWorkflow } from "@/lib/api";
-import { addresses, hasExecutorContract, hasPolicyContract, policyVaultAbi, strategyExecutorAbi, zeroAddress } from "@/lib/contracts";
+import { addresses, erc20Abi, hasExecutorContract, hasPolicyContract, policyVaultAbi, strategyExecutorAbi, zeroAddress } from "@/lib/contracts";
 import { hashObject, nowTime, shortAddress, sleep, usd } from "@/lib/format";
 import {
   defaultGoal,
@@ -34,12 +34,16 @@ import type {
 } from "@/types/assetpilot";
 
 const totalValue = portfolioBefore.reduce((sum, asset) => sum + asset.valueUsd, 0);
+type ApprovalStatus = "idle" | "checking" | "needed" | "approving" | "approved" | "failed";
+type ApprovalRequirement = { symbol: string; tokenAddress: Address; amount: bigint };
+type ApprovalState = Record<string, { required: bigint; allowance: bigint; status: ApprovalStatus }>;
 
 export function AssetPilotDemo() {
   const { address, isConnected } = useAccount();
   const { connectors, connect, isPending: isConnecting } = useConnect();
   const { disconnect } = useDisconnect();
   const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
 
   const [goal, setGoal] = useState(defaultGoal);
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>(initialAgentSteps);
@@ -52,10 +56,18 @@ export function AssetPilotDemo() {
   const [selectedReceipt, setSelectedReceipt] = useState<StrategyReceipt | null>(mockReceipts[0]);
   const [error, setError] = useState("");
   const [apiFallbackNotice, setApiFallbackNotice] = useState("");
+  const [approvalState, setApprovalState] = useState<ApprovalState>({});
 
   const approved = workflowResult?.risk_agent?.decision === "approve";
   const rejected = workflowResult?.risk_agent?.decision === "reject" || workflowResult?.risk_agent?.decision === "revise";
   const executionPlan = workflowResult?.execution_agent?.execution_plan ?? null;
+  const payloads = useMemo(
+    () => executionPlan?.steps.map((step) => step.contract_payload).filter((payload): payload is ContractActionPayloadV2 => !!payload) ?? [],
+    [executionPlan]
+  );
+  const approvalRequirements = useMemo(() => (approved ? buildApprovalRequirements(payloads) : []), [approved, payloads]);
+  const needsRealApprovals = Boolean(hasExecutorContract && addresses.strategyExecutor && approvalRequirements.length > 0);
+  const approvalsReady = !needsRealApprovals || approvalRequirements.every((requirement) => approvalState[requirement.symbol]?.status === "approved");
   const v2Approved = workflowResult?.risk_agent?.decision === "approve";
   const dryRunReady = workflowResult?.execution_agent?.status === "dry_run_prepared";
   const hasUnsafeExecutionBlock =
@@ -66,7 +78,8 @@ export function AssetPilotDemo() {
     executionPlan.steps.some((step) => step.calldata !== null);
   const canSafetyConfirm = Boolean(v2Approved && dryRunReady && executionPlan && !hasUnsafeExecutionBlock);
   const canCreatePolicy = isConnected && approved && safetyConfirmed && canSafetyConfirm && policyStatus !== "pending";
-  const canExecute = isConnected && approved && safetyConfirmed && canSafetyConfirm && policyId && executionStatus !== "pending";
+  const canApprove = isConnected && approved && safetyConfirmed && canSafetyConfirm && Boolean(policyId) && needsRealApprovals;
+  const canExecute = isConnected && approved && safetyConfirmed && canSafetyConfirm && policyId && approvalsReady && executionStatus !== "pending";
   const afterPortfolio = executionStatus === "executed" ? portfolioAfter : portfolioAfter;
 
   const updateStep = (id: AgentStep["id"], status: AgentStatus, output: string) => {
@@ -80,6 +93,7 @@ export function AssetPilotDemo() {
     setPolicyId("");
     setExecutionStatus("idle");
     setPolicyStatus("idle");
+    setApprovalState({});
     setError("");
     setApiFallbackNotice("");
   };
@@ -156,6 +170,98 @@ export function AssetPilotDemo() {
     }
   };
 
+  const refreshApprovals = async () => {
+    if (!address || !addresses.strategyExecutor || !publicClient || approvalRequirements.length === 0) return;
+    setApprovalState((current) => mergeApprovalState(current, approvalRequirements, "checking"));
+
+    const entries = await Promise.all(
+      approvalRequirements.map(async (requirement) => {
+        const allowance = await publicClient.readContract({
+          address: requirement.tokenAddress,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [address, addresses.strategyExecutor as Address]
+        });
+        return [
+          requirement.symbol,
+          {
+            required: requirement.amount,
+            allowance,
+            status: allowance >= requirement.amount ? "approved" : "needed"
+          }
+        ] as const;
+      })
+    );
+
+    setApprovalState(Object.fromEntries(entries));
+  };
+
+  const handleApproveTokens = async () => {
+    if (!address || !addresses.strategyExecutor) {
+      setError("授权前必须连接钱包并配置 StrategyExecutor。");
+      return;
+    }
+    if (!publicClient) {
+      setError("当前网络 RPC client 未初始化，无法检查授权状态。");
+      return;
+    }
+    if (approvalRequirements.length === 0) {
+      setError("ExecutionPlan 中没有需要授权的 sell token。");
+      return;
+    }
+
+    setError("");
+
+    try {
+      await refreshApprovals();
+      for (const requirement of approvalRequirements) {
+        const allowance = await publicClient.readContract({
+          address: requirement.tokenAddress,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [address, addresses.strategyExecutor]
+        });
+        if (allowance >= requirement.amount) {
+          setApprovalState((current) => ({
+            ...current,
+            [requirement.symbol]: { required: requirement.amount, allowance, status: "approved" }
+          }));
+          continue;
+        }
+
+        setApprovalState((current) => ({
+          ...current,
+          [requirement.symbol]: { required: requirement.amount, allowance, status: "approving" }
+        }));
+        const hash = await writeContractAsync({
+          address: requirement.tokenAddress,
+          abi: erc20Abi,
+          functionName: "approve",
+          args: [addresses.strategyExecutor, requirement.amount]
+        });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status !== "success") throw new Error(`${requirement.symbol} approve 交易失败。`);
+        const nextAllowance = await publicClient.readContract({
+          address: requirement.tokenAddress,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [address, addresses.strategyExecutor]
+        });
+        setApprovalState((current) => ({
+          ...current,
+          [requirement.symbol]: {
+            required: requirement.amount,
+            allowance: nextAllowance,
+            status: nextAllowance >= requirement.amount ? "approved" : "needed"
+          }
+        }));
+      }
+    } catch (err) {
+      setApprovalState((current) => markPendingApprovalsFailed(current, approvalRequirements));
+      setError(err instanceof Error ? err.message : "Token 授权失败");
+    }
+  };
+
   const handleCreatePolicy = async () => {
     if (!safetyConfirmed || !canSafetyConfirm) {
       setError("请先完成 V2 安全确认清单。");
@@ -176,6 +282,7 @@ export function AssetPilotDemo() {
     try {
       const hasTokenAddresses = Object.values(addresses.tokens).every(Boolean);
       if (hasPolicyContract && hasTokenAddresses && addresses.policyVault) {
+        if (!publicClient) throw new Error("当前网络 RPC client 未初始化，无法等待 Policy 创建回执。");
         const expiresAt = BigInt(Math.floor(Date.now() / 1000) + 30 * 60);
         const hash = await writeContractAsync({
           address: addresses.policyVault,
@@ -192,12 +299,24 @@ export function AssetPilotDemo() {
             policyDraft.blockedAssets.map((asset) => addresses.tokens[asset as keyof typeof addresses.tokens] ?? zeroAddress)
           ]
         });
-        setPolicyId(hashObject({ txHash: hash, address, workflow: workflowResult }) as Hex);
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status !== "success") throw new Error("Policy 创建交易失败。");
+        const events = parseEventLogs({
+          abi: policyVaultAbi,
+          eventName: "PolicyCreated",
+          logs: receipt.logs
+        });
+        const policyCreated = events.find((event) => event.args.user.toLowerCase() === address.toLowerCase());
+        if (!policyCreated) {
+          throw new Error("Policy 创建交易成功，但未从 PolicyCreated event 解析到 policyId。请检查合约地址和 ABI。");
+        }
+        setPolicyId(policyCreated.args.policyId);
       } else {
         await sleep(850);
         setPolicyId(hashObject({ address, goal, createdAt: Date.now(), policyDraft }) as Hex);
       }
       setPolicyStatus("created");
+      if (needsRealApprovals) await refreshApprovals();
       updateStep("execution", "completed", "Policy 已创建，Execution Agent 可提交执行");
     } catch (err) {
       setPolicyStatus("failed");
@@ -226,10 +345,11 @@ export function AssetPilotDemo() {
       setError("ExecutionPlan 含 calldata，当前版本未启用 decode/simulation gate。");
       return;
     }
+    if (!approvalsReady) {
+      setError("请先完成 mNVDA / USDC 等 sell token 对 StrategyExecutor 的授权。");
+      return;
+    }
 
-    const payloads = executionPlan.steps
-      .map((step) => step.contract_payload)
-      .filter((payload): payload is ContractActionPayloadV2 => !!payload);
     if (payloads.length === 0) {
       setError("ExecutionPlan 缺少 V2 contract_payload descriptor。");
       return;
@@ -243,15 +363,15 @@ export function AssetPilotDemo() {
     const authorizationHash = hashObject({ policyId, address, strategyHash });
 
     try {
-      let txHash = "0xmock-executed";
+      let txHash: Hex | "0xmock-executed" = "0xmock-executed";
       const hasTokenAddresses = Object.values(addresses.tokens).every(Boolean);
       if (hasExecutorContract && hasTokenAddresses && addresses.strategyExecutor) {
         const contractActions = payloads.map((payload) => ({
           sellToken: addresses.tokens[payload.sell_token_symbol as keyof typeof addresses.tokens] ?? zeroAddress,
           buyToken: addresses.tokens[payload.buy_token_symbol as keyof typeof addresses.tokens] ?? zeroAddress,
-          sellAmount: parseUnits(String(payload.sell_amount_usd), 18),
-          expectedBuyAmount: parseUnits(String(payload.expected_buy_amount), 18),
-          minBuyAmount: parseUnits(String(payload.min_buy_amount), 18)
+          sellAmount: usdToTokenUnits(payload.sell_token_symbol, payload.sell_amount_usd),
+          expectedBuyAmount: tokenAmountToUnits(payload.expected_buy_amount),
+          minBuyAmount: tokenAmountToUnits(payload.min_buy_amount)
         }));
         txHash = await writeContractAsync({
           address: addresses.strategyExecutor,
@@ -268,6 +388,9 @@ export function AssetPilotDemo() {
             }
           ]
         });
+        if (!publicClient) throw new Error("当前网络 RPC client 未初始化，无法确认执行交易回执。");
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        if (receipt.status !== "success") throw new Error("策略执行交易失败。");
       } else {
         await sleep(900);
       }
@@ -356,9 +479,14 @@ export function AssetPilotDemo() {
       <section className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
         <ExecuteStrategy
           canExecute={Boolean(canExecute)}
+          canApprove={Boolean(canApprove)}
           status={executionStatus}
+          approvalState={approvalState}
+          approvalRequirements={approvalRequirements}
+          approvalsReady={approvalsReady}
           rejected={rejected}
           rejectionReason={workflowResult?.risk_agent?.blocking_issues[0]?.code ?? workflowResult?.risk_agent?.decision ?? ""}
+          onApprove={handleApproveTokens}
           onExecute={handleExecute}
         />
         <ReceiptHistory receipts={receipts} selectedReceipt={selectedReceipt} onSelect={setSelectedReceipt} />
@@ -967,6 +1095,79 @@ function formatActionRoute(fromAsset: string | null, toAsset: string | null, ass
   return asset ?? "-";
 }
 
+function buildApprovalRequirements(payloads: ContractActionPayloadV2[]): ApprovalRequirement[] {
+  const totals = new Map<string, { tokenAddress: Address; amount: bigint }>();
+  for (const payload of payloads) {
+    const tokenAddress = addresses.tokens[payload.sell_token_symbol as keyof typeof addresses.tokens];
+    if (!tokenAddress) continue;
+    const amount = usdToTokenUnits(payload.sell_token_symbol, payload.sell_amount_usd);
+    const current = totals.get(payload.sell_token_symbol);
+    totals.set(payload.sell_token_symbol, {
+      tokenAddress,
+      amount: (current?.amount ?? BigInt(0)) + amount
+    });
+  }
+  return Array.from(totals, ([symbol, value]) => ({ symbol, ...value }));
+}
+
+function mergeApprovalState(current: ApprovalState, requirements: ApprovalRequirement[], status: ApprovalStatus): ApprovalState {
+  return Object.fromEntries(
+    requirements.map((requirement) => [
+      requirement.symbol,
+      {
+        required: requirement.amount,
+        allowance: current[requirement.symbol]?.allowance ?? BigInt(0),
+        status
+      }
+    ])
+  );
+}
+
+function markPendingApprovalsFailed(current: ApprovalState, requirements: ApprovalRequirement[]): ApprovalState {
+  return Object.fromEntries(
+    requirements.map((requirement) => {
+      const state = current[requirement.symbol];
+      return [
+        requirement.symbol,
+        {
+          required: requirement.amount,
+          allowance: state?.allowance ?? BigInt(0),
+          status: state?.status === "approved" ? "approved" : "failed"
+        }
+      ];
+    })
+  );
+}
+
+function usdToTokenUnits(symbol: string, usdAmount: number): bigint {
+  const price = marketSnapshot.prices[symbol as keyof typeof marketSnapshot.prices];
+  if (!price || price <= 0) throw new Error(`缺少 ${symbol} 的 USD 价格，无法换算 sellAmount。`);
+  const usdScaled = decimalToScaledBigInt(usdAmount, 18);
+  const priceScaled = decimalToScaledBigInt(price, 18);
+  return (usdScaled * BigInt(10) ** BigInt(18)) / priceScaled;
+}
+
+function tokenAmountToUnits(amount: number): bigint {
+  return parseUnits(formatDecimalInput(amount), 18);
+}
+
+function decimalToScaledBigInt(value: number, decimals: number): bigint {
+  return parseUnits(formatDecimalInput(value), decimals);
+}
+
+function formatDecimalInput(value: number): `${number}` {
+  if (!Number.isFinite(value) || value < 0) throw new Error(`无效金额：${value}`);
+  return value.toLocaleString("en-US", {
+    useGrouping: false,
+    maximumFractionDigits: 18
+  }) as `${number}`;
+}
+
+function formatTokenUnits(value: bigint): string {
+  const formatted = formatUnits(value, 18);
+  return formatted.replace(/(\.\d*?[1-9])0+$|\.0+$/, "$1");
+}
+
 function PolicySetup({ isConnected, policyId, status, canCreate, onCreate }: { isConnected: boolean; policyId: string; status: string; canCreate: boolean; onCreate: () => void }) {
   return (
     <Panel title="Policy Setup" action={<StatusPill status={status === "created" ? "completed" : status === "failed" ? "failed" : status === "pending" ? "running" : "pending"} />}>
@@ -1009,7 +1210,31 @@ function PortfolioComparison({ afterPortfolio, executed }: { afterPortfolio: Por
   );
 }
 
-function ExecuteStrategy({ canExecute, status, rejected, rejectionReason, onExecute }: { canExecute: boolean; status: string; rejected: boolean; rejectionReason: string; onExecute: () => void }) {
+function ExecuteStrategy({
+  canExecute,
+  canApprove,
+  status,
+  approvalState,
+  approvalRequirements,
+  approvalsReady,
+  rejected,
+  rejectionReason,
+  onApprove,
+  onExecute
+}: {
+  canExecute: boolean;
+  canApprove: boolean;
+  status: string;
+  approvalState: ApprovalState;
+  approvalRequirements: ApprovalRequirement[];
+  approvalsReady: boolean;
+  rejected: boolean;
+  rejectionReason: string;
+  onApprove: () => void;
+  onExecute: () => void;
+}) {
+  const isApproving = approvalRequirements.some((requirement) => approvalState[requirement.symbol]?.status === "approving" || approvalState[requirement.symbol]?.status === "checking");
+
   return (
     <Panel title="Execute Strategy" action={<StatusPill status={status === "executed" ? "completed" : status === "refused" || rejected ? "rejected" : status === "pending" ? "running" : "pending"} />}>
       <div className="rounded-lg border border-line bg-slate-50 p-4">
@@ -1021,6 +1246,47 @@ function ExecuteStrategy({ canExecute, status, rejected, rejectionReason, onExec
           <div className="text-slate-700"><div className="text-lg font-semibold">等待执行</div><div className="mt-1 text-sm">必须先生成策略、通过 Risk Agent、创建 policyId。</div></div>
         )}
       </div>
+      {approvalRequirements.length > 0 ? (
+        <div className="mt-4 rounded-lg border border-line bg-white p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-ink">Token Approvals</div>
+            <StatusPill status={approvalsReady ? "completed" : isApproving ? "running" : "pending"} label={approvalsReady ? "APPROVED" : isApproving ? "APPROVING" : "REQUIRED"} />
+          </div>
+          <div className="space-y-2 text-sm">
+            {approvalRequirements.map((requirement) => {
+              const state = approvalState[requirement.symbol];
+              const statusText = state?.status === "approved"
+                ? "已授权"
+                : state?.status === "approving"
+                  ? "授权中"
+                  : state?.status === "checking"
+                    ? "检查中"
+                    : state?.status === "failed"
+                      ? "授权失败"
+                      : `需要授权 ${requirement.symbol}`;
+              return (
+                <div key={requirement.symbol} className="flex items-start justify-between gap-3 rounded-md bg-slate-50 px-3 py-2">
+                  <div>
+                    <div className="font-medium text-ink">{requirement.symbol}</div>
+                    <div className="text-xs text-slate-500">spender: StrategyExecutor</div>
+                  </div>
+                  <div className="text-right text-xs text-slate-600">
+                    <div>{statusText}</div>
+                    <div className="font-mono">{formatTokenUnits(requirement.amount)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <button
+            className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!canApprove || approvalsReady || isApproving}
+            onClick={onApprove}
+          >
+            {isApproving ? <Loader2 className="animate-spin" size={16} /> : <ShieldCheck size={16} />} 授权 mNVDA / USDC
+          </button>
+        </div>
+      ) : null}
       <button
         className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-mint px-4 py-3 text-sm font-semibold text-white hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-60"
         disabled={!canExecute}
