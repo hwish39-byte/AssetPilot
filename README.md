@@ -11,6 +11,17 @@ The MVP uses mock tokenized assets:
 - `mSPY`
 - `USDC`
 
+The current Perpl testnet track adds a second, explicitly separated flow for Monad testnet perpetuals:
+
+- Public Perpl REST context, ticker, funding, candles, and order book ingestion.
+- Public Perpl market-data WebSocket streaming through backend SSE.
+- Signed read-only REST for wallet, positions, orders, fills, history, and portfolio once read keys are configured.
+- Deterministic Perpl risk analysis and dry-run agent review.
+- Optional backend-held trade key execution for approved reduce-only/cancel flows.
+- Application-layer immutable receipts for risk review, user confirmation, execution intent, submission, updates, finalization, and reconciliation.
+
+Perpl testnet orders do not currently pass through `PolicyVault`, `StrategyExecutor`, or `ReceiptRegistry`. Perpl receipts are marked `receiptLayer: "application"`, `policyEnforcement: "backend_pre_submission"`, `onchainEnforced: false`, and `onchainAnchored: false`.
+
 ## What It Does
 
 AssetPilot helps users safely delegate tokenized portfolio actions to AI.
@@ -57,6 +68,55 @@ Execution or Refusal
   ↓
 Receipt
 ```
+
+## Perpl Testnet Flow
+
+```text
+Perpl REST + Public Market WebSocket
+  ↓
+Risk Engine
+  ↓
+Deterministic Agent Review
+  ↓
+Application Receipt
+  ↓
+User Confirmation
+  ↓
+Backend Trade Key
+  ↓
+Perpl Testnet
+  ↓
+Receipt Reconciliation
+```
+
+Public market realtime uses `/ws/v1/market-data` only. Private wallet, risk, and trade state remain on signed REST/polling. The UI labels data as Live, Reconnecting, REST fallback, Stale, or Unavailable so polling data is not presented as live.
+
+## Perpl Commands
+
+Backend:
+
+```bash
+cd backend
+npm test
+npm run build
+npm run perpl:check
+npm run perpl:analytics-check
+npm run perpl:agent-check
+npm run perpl:trade-check
+npm run perpl:receipt-check
+npm run perpl:realtime-check
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm run build
+```
+
+`PERPL_READ_API_KEY` and `PERPL_READ_API_KEY_SECRET` unlock private read endpoints. `PERPL_TRADE_API_KEY`, `PERPL_TRADE_API_KEY_SECRET`, and `PERPL_TRADING_ENABLED=true` are additionally required for testnet execution. No Perpl key belongs in frontend or `NEXT_PUBLIC_*` variables.
+
+See `docs/ARCHITECTURE.md`, `docs/PERPL_DATA_SOURCES.md`, `docs/RISK_METHODOLOGY.md`, `docs/SECURITY.md`, `docs/DEMO_SCRIPT.md`, and `docs/BOUNTY_CHECKLIST.md` for the Perpl delivery notes.
 
 ## Four-Agent Design
 

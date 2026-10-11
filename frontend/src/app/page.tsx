@@ -1,10 +1,5 @@
-import { Providers } from "@/components/Providers";
-import { AssetPilotDemo } from "@/components/AssetPilotDemo";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return (
-    <Providers>
-      <AssetPilotDemo />
-    </Providers>
-  );
+  redirect("/overview");
 }

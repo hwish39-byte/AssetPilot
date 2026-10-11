@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
+import { Providers } from "@/components/Providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AssetPilot Demo",
-  description: "Policy-controlled AI portfolio execution demo"
+  title: "AssetPilot",
+  description: "Perpl real-time risk intelligence and pre-trade risk simulation on Monad"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }
