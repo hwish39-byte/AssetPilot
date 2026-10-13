@@ -1,4 +1,5 @@
 import type { AnalyticsMetric } from "@/types/perpl";
+import { StatusBadge, toneForStatus } from "./StatusBadge";
 
 export function MetricValue<T>({
   metric,
@@ -23,18 +24,12 @@ export function MetricValue<T>({
 
 export function UnavailableValue({ reason }: { reason?: string }) {
   return (
-    <span className="font-mono text-slate-500" title={reason ?? "Data is unavailable"}>
+    <span className="font-mono text-terminal-subtle" title={reason ?? "Data is unavailable"}>
       Unavailable
     </span>
   );
 }
 
 export function StatusPill({ status }: { status: string }) {
-  const tone =
-    status === "available"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-      : status === "partial" || status === "stale"
-        ? "border-amber-200 bg-amber-50 text-amber-800"
-        : "border-slate-200 bg-slate-50 text-slate-600";
-  return <span className={`inline-flex rounded border px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${tone}`}>{status}</span>;
+  return <StatusBadge tone={toneForStatus(status)}>{status}</StatusBadge>;
 }

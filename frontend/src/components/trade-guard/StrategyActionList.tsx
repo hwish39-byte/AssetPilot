@@ -1,6 +1,8 @@
 "use client";
 
 import { AlertTriangle, ChevronDown, ListTree } from "lucide-react";
+import { Panel } from "@/components/shared/Panel";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { formatBps, formatLeverage, formatPercent, formatToken } from "@/lib/format";
 import type { PerplAgentAction, PerplMarket, PerplOrder, PerplPosition, PerplStrategyOutput } from "@/types/perpl";
 import { findMarket, findOrder, findPosition } from "./tradeGuardUtils";
@@ -17,17 +19,18 @@ export function StrategyActionList({
   markets: PerplMarket[];
 }) {
   return (
-    <section className="border border-slate-200 bg-white p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <ListTree className="h-4 w-4 text-cyan-700" aria-hidden="true" />
-          <h2 className="text-sm font-semibold text-slate-950">Strategy actions</h2>
-        </div>
-        <span className="rounded border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">{strategy.status}</span>
-      </div>
-      <p className="mt-2 text-sm text-slate-700">{strategy.objective}</p>
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <ListTree className="h-4 w-4 text-signal-live" aria-hidden="true" />
+          Strategy actions
+        </span>
+      }
+      actions={<StatusBadge tone={strategy.status === "generated" ? "success" : strategy.status === "clarification_required" ? "warning" : "danger"}>{strategy.status}</StatusBadge>}
+    >
+      <p className="text-sm leading-6 text-terminal-muted">{strategy.objective}</p>
       {strategy.clarificationQuestions.length ? (
-        <div className="mt-3 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="mt-3 rounded-md border border-signal-warn/35 bg-signal-warn/10 p-3 text-sm text-signal-warn">
           <p className="font-semibold">Clarification required</p>
           <ul className="mt-1 list-inside list-disc">
             {strategy.clarificationQuestions.map((question) => <li key={question}>{question}</li>)}
@@ -38,7 +41,7 @@ export function StrategyActionList({
       <div className="mt-4 space-y-3">
         {strategy.actions.map((action) => <ActionRow key={action.actionId} action={action} positions={positions} orders={orders} markets={markets} />)}
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -49,37 +52,37 @@ function ActionRow({ action, positions, orders, markets }: { action: PerplAgentA
   const market = findMarket(markets, marketId);
 
   return (
-    <article className="border-l-2 border-slate-300 pl-3">
+    <article className="rounded-md border border-terminal-line bg-terminal-raised/35 p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-xs font-semibold text-slate-500">{action.actionId}</span>
-        <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-800">{action.type}</span>
-        <span className="text-xs text-slate-500">{market?.symbol ?? marketId ?? "No market"}</span>
+        <span className="font-mono text-xs font-semibold text-terminal-subtle">{action.actionId}</span>
+        <StatusBadge tone={action.type === "place_order" && !action.reduceOnly ? "danger" : action.type === "hold" ? "neutral" : "live"}>{action.type}</StatusBadge>
+        <span className="text-xs text-terminal-muted">{market?.symbol ?? marketId ?? "No market"}</span>
       </div>
-      <div className="mt-2 grid gap-2 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-3 grid gap-2 text-sm text-terminal-muted sm:grid-cols-2 lg:grid-cols-3">
         {fieldsFor(action, position, order).map((field) => (
           <div key={field.label}>
-            <p className="text-xs font-medium uppercase text-slate-500">{field.label}</p>
-            <p className="break-words font-medium text-slate-900">{field.value}</p>
+            <p className="text-xs font-medium uppercase tracking-wide text-terminal-subtle">{field.label}</p>
+            <p className="break-words font-medium text-terminal-text">{field.value}</p>
           </div>
         ))}
       </div>
       {action.type === "place_order" && !action.reduceOnly ? (
-        <p className="mt-2 inline-flex items-center gap-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-800">
+        <p className="mt-2 inline-flex items-center gap-2 rounded border border-signal-danger/35 bg-signal-danger/10 px-2 py-1 text-xs font-semibold text-signal-danger">
           <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
           This action can increase exposure and cannot be locally confirmed unless risk review approves it.
         </p>
       ) : null}
-      {action.type === "add_collateral" ? <p className="mt-2 text-xs font-semibold text-amber-800">Hypothetical collateral input</p> : null}
-      <p className="mt-2 text-sm text-slate-700">{action.rationale}</p>
-      <ul className="mt-2 list-inside list-disc text-xs text-slate-600">
+      {action.type === "add_collateral" ? <p className="mt-2 text-xs font-semibold text-signal-warn">Hypothetical collateral input</p> : null}
+      <p className="mt-2 text-sm text-terminal-muted">{action.rationale}</p>
+      <ul className="mt-2 list-inside list-disc text-xs leading-5 text-terminal-muted">
         {action.expectedEffects.map((effect) => <li key={effect}>{effect}</li>)}
       </ul>
       <details className="mt-2">
-        <summary className="inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-slate-500">
+        <summary className="inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-terminal-muted focus:outline-none focus:ring-2 focus:ring-signal-live">
           <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
           JSON detail
         </summary>
-        <pre className="mt-2 max-h-56 overflow-auto rounded bg-slate-950 p-3 text-xs text-slate-100">{JSON.stringify(action, null, 2)}</pre>
+        <pre className="mt-2 max-h-56 overflow-auto rounded bg-terminal-bg p-3 text-xs text-terminal-text">{JSON.stringify(action, null, 2)}</pre>
       </details>
     </article>
   );

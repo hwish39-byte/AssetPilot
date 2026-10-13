@@ -2,26 +2,31 @@
 
 import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
 import { RiskBadge } from "@/components/risk/RiskBadge";
+import { MetricTile } from "@/components/shared/MetricTile";
+import { Panel } from "@/components/shared/Panel";
 import { formatLeverage, formatPercent, formatUsdValue } from "@/lib/format";
 import type { PerplRiskSimulationResult } from "@/types/perpl";
 
 export function RiskComparison({ simulation, title = "Before / after risk" }: { simulation: PerplRiskSimulationResult | null; title?: string }) {
   if (!simulation) {
     return (
-      <section className="border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-slate-950">{title}</h2>
-        <p className="mt-2 text-sm text-slate-500">No simulation result available.</p>
-      </section>
+      <Panel title={title}>
+        <p className="text-sm text-terminal-muted">No simulation result available.</p>
+      </Panel>
     );
   }
 
   return (
-    <section className="border border-slate-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-slate-950">{title}</h2>
+    <Panel title={title} className="min-w-0">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MetricTile label="Before" value={simulation.beforeScore ?? "Unavailable"} />
+        <MetricTile label="After" value={simulation.afterScore ?? "Unavailable"} tone={simulation.scoreDelta !== null && simulation.scoreDelta < 0 ? "success" : "warning"} />
+        <MetricTile label="Delta" value={simulation.scoreDelta ?? "Unavailable"} tone={simulation.scoreDelta !== null && simulation.scoreDelta < 0 ? "success" : "warning"} />
+      </div>
       <div className="mt-4 overflow-x-auto">
         <table className="min-w-[760px] w-full border-collapse text-left text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
+            <tr className="border-b border-terminal-line text-xs uppercase tracking-wide text-terminal-muted">
               <th className="py-2 pr-3">Metric</th>
               <th className="py-2 pr-3">Before</th>
               <th className="py-2 pr-3">After</th>
@@ -30,10 +35,10 @@ export function RiskComparison({ simulation, title = "Before / after risk" }: { 
           </thead>
           <tbody>
             {rows(simulation).map((row) => (
-              <tr key={row.label} className="border-b border-slate-100">
-                <td className="py-2 pr-3 font-medium text-slate-800">{row.label}</td>
-                <td className="py-2 pr-3 font-mono text-slate-700">{row.before}</td>
-                <td className="py-2 pr-3 font-mono text-slate-700">{row.after}</td>
+              <tr key={row.label} className="border-b border-terminal-line/70 hover:bg-terminal-raised/35">
+                <td className="py-2 pr-3 font-medium text-terminal-text">{row.label}</td>
+                <td className="py-2 pr-3 font-mono text-terminal-muted">{row.before}</td>
+                <td className="py-2 pr-3 font-mono text-terminal-muted">{row.after}</td>
                 <td className="py-2 pr-3">{direction(row.direction)}</td>
               </tr>
             ))}
@@ -42,11 +47,11 @@ export function RiskComparison({ simulation, title = "Before / after risk" }: { 
       </div>
 
       <div className="mt-4">
-        <h3 className="text-xs font-semibold uppercase text-slate-500">Changed components</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-terminal-muted">Changed components</h3>
         <div className="mt-2 overflow-x-auto">
           <table className="min-w-[680px] w-full border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase text-slate-500">
+              <tr className="border-b border-terminal-line text-xs uppercase tracking-wide text-terminal-muted">
                 <th className="py-2 pr-3">Component</th>
                 <th className="py-2 pr-3">Before score</th>
                 <th className="py-2 pr-3">After score</th>
@@ -59,22 +64,22 @@ export function RiskComparison({ simulation, title = "Before / after risk" }: { 
                 const previous = simulation.before.components.find((item) => item.id === component.id);
                 const delta = previous?.score === null || previous?.score === undefined || component.score === null ? null : component.score - previous.score;
                 return (
-                  <tr key={component.id} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 font-medium text-slate-800">{component.label}</td>
-                    <td className="py-2 pr-3 font-mono">{previous?.score ?? "Unavailable"}</td>
-                    <td className="py-2 pr-3 font-mono">{component.score ?? "Unavailable"}</td>
-                    <td className="py-2 pr-3 font-mono">{delta === null ? "Unavailable" : delta}</td>
-                    <td className="py-2 pr-3 text-xs text-slate-600">{component.evidence.join("; ") || "No evidence"}</td>
+                  <tr key={component.id} className="border-b border-terminal-line/70 hover:bg-terminal-raised/35">
+                    <td className="py-2 pr-3 font-medium text-terminal-text">{component.label}</td>
+                    <td className="py-2 pr-3 font-mono text-terminal-muted">{previous?.score ?? "Unavailable"}</td>
+                    <td className="py-2 pr-3 font-mono text-terminal-muted">{component.score ?? "Unavailable"}</td>
+                    <td className="py-2 pr-3 font-mono text-terminal-muted">{delta === null ? "Unavailable" : delta}</td>
+                    <td className="py-2 pr-3 text-xs text-terminal-muted">{component.evidence.join("; ") || "No evidence"}</td>
                   </tr>
                 );
               }) : (
-                <tr><td colSpan={5} className="py-3 text-slate-500">No component changed.</td></tr>
+                <tr><td colSpan={5} className="py-3 text-terminal-muted">No component changed.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -109,8 +114,8 @@ function numericDirection(beforeValue: unknown, afterValue: unknown, lowerIsBett
 }
 
 function direction(value: string) {
-  if (value === "improved") return <span className="inline-flex items-center gap-1 text-emerald-700"><ArrowDownRight className="h-4 w-4" aria-hidden="true" /> Risk improved</span>;
-  if (value === "worse") return <span className="inline-flex items-center gap-1 text-red-700"><ArrowUpRight className="h-4 w-4" aria-hidden="true" /> Risk worsened</span>;
-  if (value === "coverage") return <span className="inline-flex items-center gap-1 text-slate-600"><ArrowRight className="h-4 w-4" aria-hidden="true" /> Coverage only</span>;
-  return <span className="inline-flex items-center gap-1 text-slate-600"><ArrowRight className="h-4 w-4" aria-hidden="true" /> No risk change</span>;
+  if (value === "improved") return <span className="inline-flex items-center gap-1 text-signal-pass"><ArrowDownRight className="h-4 w-4" aria-hidden="true" /> Risk improved</span>;
+  if (value === "worse") return <span className="inline-flex items-center gap-1 text-signal-danger"><ArrowUpRight className="h-4 w-4" aria-hidden="true" /> Risk worsened</span>;
+  if (value === "coverage") return <span className="inline-flex items-center gap-1 text-terminal-muted"><ArrowRight className="h-4 w-4" aria-hidden="true" /> Coverage only</span>;
+  return <span className="inline-flex items-center gap-1 text-terminal-muted"><ArrowRight className="h-4 w-4" aria-hidden="true" /> No risk change</span>;
 }

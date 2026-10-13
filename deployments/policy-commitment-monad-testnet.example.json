@@ -1,0 +1,10 @@
+{
+  "network": "monad-testnet",
+  "chainId": 10143,
+  "contractName": "PolicyCommitment",
+  "contractAddress": "",
+  "deployer": "",
+  "deployedAt": "",
+  "txHash": "",
+  "notes": "Policy hash commitment only; not onchain policy enforcement."
+}

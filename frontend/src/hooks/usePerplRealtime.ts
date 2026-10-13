@@ -71,7 +71,7 @@ export function usePerplRealtime(args: { markets?: number[]; channels?: Realtime
     };
     const onErrorEvent = (event: MessageEvent) => {
       mark();
-      const payload = JSON.parse(event.data) as { message?: string };
+      const payload = parseRealtimeError(event.data);
       setError(payload.message ?? "Realtime stream error.");
     };
 
@@ -89,6 +89,15 @@ export function usePerplRealtime(args: { markets?: number[]; channels?: Realtime
   }, [marketsKey, channelsKey]);
 
   return { status, snapshots, tickers, funding, orderbooks, lastEventAt, error };
+}
+
+function parseRealtimeError(data: unknown) {
+  if (typeof data !== "string" || data.length === 0) return {};
+  try {
+    return JSON.parse(data) as { message?: string };
+  } catch {
+    return {};
+  }
 }
 
 export function usePerplMarketStream(marketId: number, channels: RealtimeChannel[] = ["ticker", "funding", "orderbook", "heartbeat"]) {

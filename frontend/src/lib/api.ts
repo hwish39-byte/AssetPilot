@@ -1,4 +1,3 @@
-import type { OrchestratorResponse, PolicyDraft } from "@/types/assetpilot";
 import type {
   AnalyticsAvailabilityResponse,
   AnalyticsHistoryMetric,
@@ -12,12 +11,15 @@ import type {
   PerplExecutionIntent,
   PerplMarket,
   PerplOrder,
+  PerplPolicyHashResponse,
   PerplPosition,
   PerplRiskOptions,
   PerplRiskSimulationRequest,
   PerplRiskSimulationResult,
   PerplRiskSnapshot,
   PerplReceipt,
+  PerplReceiptAnchorRequest,
+  PerplReceiptAnchorStatus,
   PerplReceiptChainVerification,
   PerplReceiptListResponse,
   PerplReceiptType,
@@ -29,7 +31,6 @@ import type {
   ProtocolOverview,
   SystemStatusResponse
 } from "@/types/perpl";
-import { marketSnapshot, portfolioBefore } from "./mockData";
 
 export const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8787";
 
@@ -164,6 +165,8 @@ export const perplApi = {
   },
   simulate: (request: PerplRiskSimulationRequest, signal?: AbortSignal) =>
     postJson<PerplRiskSimulationResult>("/api/perpl/risk/simulate", request, { signal }),
+  policyHash: (policy: PerplAgentWorkflowRequest["policy"], signal?: AbortSignal) =>
+    postJson<PerplPolicyHashResponse>("/api/perpl/policy/hash", policy, { signal }),
   runAgentWorkflow: (request: PerplAgentWorkflowRequest, signal?: AbortSignal) =>
     postJson<PerplAgentWorkflowResponse>("/api/perpl/agent/run", request, { signal, timeoutMs: 30_000 }),
   tradingCapabilities: (signal?: AbortSignal) => getJson<PerplTradingCapabilities>("/api/perpl/trading/capabilities", { signal }),
@@ -192,6 +195,9 @@ export const perplApi = {
   receipt: (receiptId: string, signal?: AbortSignal) => getJson<PerplReceipt>(`/api/perpl/receipts/${encodeURIComponent(receiptId)}`, { signal }),
   verifyReceipt: (receiptId: string, signal?: AbortSignal) => getJson<PerplReceiptVerification>(`/api/perpl/receipts/${encodeURIComponent(receiptId)}/verify`, { signal }),
   verifyReceiptChain: (signal?: AbortSignal) => getJson<PerplReceiptChainVerification>("/api/perpl/receipts/verify-chain", { signal }),
+  receiptAnchorStatus: (receiptId: string, signal?: AbortSignal) => getJson<PerplReceiptAnchorStatus>(`/api/perpl/receipts/${encodeURIComponent(receiptId)}/anchor-status`, { signal }),
+  recordReceiptAnchor: (receiptId: string, request: PerplReceiptAnchorRequest, signal?: AbortSignal) =>
+    postJson<PerplReceiptAnchorStatus>(`/api/perpl/receipts/${encodeURIComponent(receiptId)}/anchor`, request, { signal, timeoutMs: 20_000 }),
   exportReceipt: (receiptId: string, signal?: AbortSignal) => getJson<PerplReceipt>(`/api/perpl/receipts/${encodeURIComponent(receiptId)}/export`, { signal }),
   realtimeStatus: (signal?: AbortSignal) => getJson<PerplRealtimeStatus>("/api/perpl/realtime/status", { signal }),
   systemStatus: (signal?: AbortSignal) => getJson<SystemStatusResponse>("/api/system/status", { signal })
@@ -217,16 +223,3 @@ export const createPerplExecutionIntent = (workflowId: string, signal?: AbortSig
 export const executePerplExecutionIntent = (intent: PerplExecutionIntent, confirmationText: string, signal?: AbortSignal) =>
   perplApi.executeExecutionIntent(intent, confirmationText, signal);
 export const reconcilePerplExecutionIntent = (intentId: string, signal?: AbortSignal) => perplApi.reconcileExecutionIntent(intentId, signal);
-
-export async function runWorkflow(userGoal: string, policyDraft: PolicyDraft, wallet?: string): Promise<{ data: OrchestratorResponse; usedFallback: false }> {
-  const data = await postJson<OrchestratorResponse>("/api/workflow/run", {
-    user_goal: userGoal,
-    portfolio: portfolioBefore.map(({ symbol, valueUsd }) => ({ symbol, valueUsd })),
-    market_snapshot: marketSnapshot,
-    policy_draft: policyDraft,
-    current_state: "draft_strategy",
-    wallet,
-    execution_mode: "dry_run"
-  });
-  return { data, usedFallback: false };
-}

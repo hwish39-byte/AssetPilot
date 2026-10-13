@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
 import { LoadingSkeleton } from "@/components/shared/State";
 import { getPerplMarkets, getPerplOrders, getPerplPositions, getPerplRisk, getPerplTradingCapabilities, runPerplAgentWorkflow, shouldRetryApi } from "@/lib/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -10,17 +9,15 @@ import type { PerplAgentPolicy, PerplAgentWorkflowResponse } from "@/types/perpl
 import { AgentWorkflowStatus } from "./AgentWorkflowStatus";
 import { AnalystFindings } from "./AnalystFindings";
 import { CurrentRiskPanel } from "./CurrentRiskPanel";
+import { DecisionDock } from "./DecisionDock";
 import { DryRunExecutionPlan } from "./DryRunExecutionPlan";
 import { GoalEditor } from "./GoalEditor";
 import { ManualSimulationPanel } from "./ManualSimulationPanel";
 import { PolicyEditor } from "./PolicyEditor";
 import { RiskComparison } from "./RiskComparison";
-import { RiskDecisionPanel } from "./RiskDecisionPanel";
 import { StrategyActionList } from "./StrategyActionList";
 import { TradeGuardEmptyState } from "./TradeGuardEmptyState";
 import { TradeGuardErrorState } from "./TradeGuardErrorState";
-import { TestnetExecutionPanel } from "./TestnetExecutionPanel";
-import { UserConfirmationPanel } from "./UserConfirmationPanel";
 import { buildDefaultPolicy, confirmationEligibility, riskFingerprint, type LocalConfirmation, validateGoal, validatePolicy } from "./tradeGuardUtils";
 
 type Tab = "agent" | "manual";
@@ -105,13 +102,20 @@ export function TradeGuardWorkspace() {
 
   return (
     <div className="space-y-5">
+      <section className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-terminal-text">Trade Guard Terminal</h1>
+          <p className="mt-1 text-sm text-terminal-muted">Agent dry-runs, deterministic risk review, and backend-guarded Perpl testnet execution.</p>
+        </div>
+      </section>
+
       {loading ? <LoadingSkeleton rows={5} /> : null}
       {dataError ? <TradeGuardErrorState error={dataError} onRetry={() => { void risk.refetch(); void positions.refetch(); void orders.refetch(); void markets.refetch(); }} title="Perpl risk data unavailable" /> : null}
       {risk.data ? <CurrentRiskPanel risk={risk.data} /> : !loading && !dataError ? <TradeGuardEmptyState title="No risk snapshot" description="Trade Guard needs /api/perpl/risk before any Agent workflow can run." /> : null}
 
       {risk.data?.noExposure ? <TradeGuardEmptyState title="No open exposure" description="Agent planning remains available, but current risk is already low and most safe strategies will hold." /> : null}
 
-      <div className="border-b border-slate-200" role="tablist" aria-label="Trade Guard mode">
+      <div className="border-b border-terminal-line" role="tablist" aria-label="Trade Guard mode">
         <div className="flex gap-2 overflow-x-auto">
           <TabButton active={tab === "agent"} onClick={() => setTab("agent")}>Agent plan</TabButton>
           <TabButton active={tab === "manual"} onClick={() => setTab("manual")}>Manual simulation</TabButton>
@@ -119,40 +123,40 @@ export function TradeGuardWorkspace() {
       </div>
 
       {tab === "agent" ? (
-        <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
+        <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)_360px]">
           <div className="space-y-5">
             <GoalEditor goal={goal} setGoal={updateGoal} onRun={runAgent} onCancel={cancelAgent} isRunning={running} disabled={!canUseAgent || !!policyError} />
             <PolicyEditor policy={policy} setPolicy={updatePolicy} risk={risk.data} markets={markets.data ?? []} />
           </div>
 
-          <div className="space-y-5">
+          <div className="min-w-0 space-y-5">
             <AgentWorkflowStatus result={result} isRunning={running} error={workflowError} stale={workflowStale} />
             {workflowError ? <TradeGuardErrorState error={workflowError} title="Agent workflow failed" /> : null}
-            {staleReason ? (
-              <div className="flex items-start gap-2 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" aria-hidden="true" />
-                <p>{staleReason}</p>
-              </div>
-            ) : null}
             {!result && !running && !workflowError ? <TradeGuardEmptyState title="No Agent run yet" description="Enter a goal, review the application-level policy, then run analysis." /> : null}
             {result ? (
               <>
                 <AnalystFindings analyst={result.analyst} />
                 <StrategyActionList strategy={result.strategy} positions={positions.data ?? []} orders={orders.data ?? []} markets={markets.data ?? []} />
                 <RiskComparison simulation={result.simulation} />
-                <RiskDecisionPanel review={result.riskReview} />
                 <DryRunExecutionPlan result={result} markets={markets.data ?? []} />
-                <UserConfirmationPanel
-                  result={result}
-                  policy={policy}
-                  risk={risk.data}
-                  confirmation={confirmation}
-                  onConfirm={() => eligibility.eligible && result && setConfirmation({ status: "locally_confirmed", confirmedAt: new Date().toISOString(), workflowId: result.workflowId })}
-                  onAbandon={() => { setConfirmation(null); setResult(null); setStaleReason(null); }}
-                />
-                <TestnetExecutionPanel result={result} confirmation={confirmation} capabilities={tradingCapabilities.data} />
               </>
             ) : null}
+          </div>
+
+          <div>
+            <DecisionDock
+              result={result}
+              policy={policy}
+              risk={risk.data}
+              confirmation={confirmation}
+              eligibility={eligibility}
+              staleReason={staleReason}
+              isRunning={running}
+              workflowError={workflowError}
+              capabilities={tradingCapabilities.data}
+              onConfirm={() => eligibility.eligible && result && setConfirmation({ status: "locally_confirmed", confirmedAt: new Date().toISOString(), workflowId: result.workflowId })}
+              onAbandon={() => { setConfirmation(null); setResult(null); setStaleReason(null); }}
+            />
           </div>
         </div>
       ) : (
@@ -169,7 +173,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`min-h-10 shrink-0 rounded-t-md border border-b-0 px-4 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-600 ${active ? "border-slate-200 bg-white text-slate-950" : "border-transparent bg-transparent text-slate-600 hover:bg-white/60"}`}
+      className={`min-h-10 shrink-0 rounded-t-md border border-b-0 px-4 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-signal-live ${active ? "border-terminal-line bg-terminal-panel text-terminal-text shadow-[inset_0_2px_0_#22d3ee]" : "border-transparent bg-transparent text-terminal-muted hover:bg-terminal-raised"}`}
     >
       {children}
     </button>

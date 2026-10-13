@@ -2,9 +2,8 @@ import "dotenv/config";
 import { pathToFileURL } from "node:url";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { runWorkflow } from "./agents/orchestrator.js";
 import { runPerplAgentWorkflow } from "./agents/perpl/orchestrator.js";
-import { assertPerplAgentWorkflowRequest } from "./agents/perpl/validation.js";
+import { assertPerplAgentWorkflowRequest, normalizePolicy, validatePolicy } from "./agents/perpl/validation.js";
 import { OpenAiProvider, type LlmProvider } from "./llm.js";
 import { PerplApiError, toPublicPerplError } from "./perpl/errors.js";
 import {
@@ -17,21 +16,12 @@ import { PerplService } from "./perpl/service.js";
 import { PerplRealtimeService } from "./perpl/realtime/realtimeService.js";
 import type { RealtimeChannel, RealtimeSseEvent } from "./perpl/realtime/types.js";
 import { PerplTradingExecutionService } from "./perpl/trading/executionService.js";
-import { ReceiptService, workflowPlanHash } from "./receipts/receiptService.js";
-import type { ReceiptListQuery, ReceiptType } from "./receipts/types.js";
+import { ReceiptNotFoundError, ReceiptService, workflowPlanHash } from "./receipts/receiptService.js";
+import { policyHashForPolicy } from "./receipts/receiptBuilder.js";
+import type { ReceiptAnchorRequest, ReceiptListQuery, ReceiptType } from "./receipts/types.js";
 import { PerplRiskService, validateRiskOptions } from "./risk/perplRiskService.js";
 import { simulatePerplRisk } from "./risk/simulator.js";
-import {
-  assertOrchestratorRequest,
-  strategyJsonSchema,
-  strategyJsonV2Schema,
-  ValidationError
-} from "./validation.js";
-
-const legacyEndpointRemoved = {
-  error: "LEGACY_ENDPOINT_REMOVED",
-  message: "This legacy endpoint has been removed. Use POST /api/workflow/run."
-};
+import { ValidationError } from "./validation.js";
 
 export function createApp(
   options: {
@@ -58,10 +48,6 @@ export function createApp(
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "assetpilot-backend-orchestrator" });
-  });
-
-  app.get("/api/strategy-schema", (_req, res) => {
-    res.json({ legacy: strategyJsonSchema, v2: strategyJsonV2Schema });
   });
 
   app.get("/api/perpl/health", async (_req, res, next) => {
@@ -134,6 +120,17 @@ export function createApp(
     try {
       const inputs = await perplRisk.getRiskInputs(validateRiskOptions(req.query));
       res.json(simulatePerplRisk(inputs.snapshot, inputs.bundle, inputs.markets, req.body));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/perpl/policy/hash", async (req, res, next) => {
+    try {
+      const errors = validatePolicy(req.body, "policy");
+      if (errors.length) throw new ValidationError(errors);
+      const policy = normalizePolicy(req.body as Record<string, unknown>);
+      res.json({ policyHash: policyHashForPolicy(policy), canonicalPolicy: policy });
     } catch (error) {
       next(error);
     }
@@ -347,6 +344,32 @@ export function createApp(
     }
   });
 
+  app.get("/api/perpl/receipts/:receiptId/anchor-status", async (req, res, next) => {
+    try {
+      await receiptService.initialize();
+      res.json(receiptService.getAnchorStatus(req.params.receiptId));
+    } catch (error) {
+      if (error instanceof ReceiptNotFoundError) {
+        res.status(404).json({ error: { code: "RECEIPT_NOT_FOUND", message: "Receipt not found.", retryable: false } });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  app.post("/api/perpl/receipts/:receiptId/anchor", async (req, res, next) => {
+    try {
+      await receiptService.initialize();
+      res.status(201).json(await receiptService.appendAnchorConfirmationReceipt(req.params.receiptId, parseReceiptAnchorRequest(req.body)));
+    } catch (error) {
+      if (error instanceof ReceiptNotFoundError) {
+        res.status(404).json({ error: { code: "RECEIPT_NOT_FOUND", message: "Receipt not found.", retryable: false } });
+        return;
+      }
+      next(error);
+    }
+  });
+
   app.get("/api/perpl/receipts/:receiptId/export", async (req, res, next) => {
     try {
       await receiptService.initialize();
@@ -358,21 +381,6 @@ export function createApp(
       res.setHeader("Content-Type", "application/json");
       res.setHeader("Content-Disposition", `attachment; filename="${req.params.receiptId}.json"`);
       res.json(receipt);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // Legacy MVP endpoints are intentionally removed from the public API.
-  app.post("/api/analyze", (_req, res) => res.status(410).json(legacyEndpointRemoved));
-  app.post("/api/generate-strategy", (_req, res) => res.status(410).json(legacyEndpointRemoved));
-  app.post("/api/review-risk", (_req, res) => res.status(410).json(legacyEndpointRemoved));
-  app.post("/api/execution-summary", (_req, res) => res.status(410).json(legacyEndpointRemoved));
-
-  // V2 typed workflow endpoint.
-  app.post("/api/workflow/run", async (req, res, next) => {
-    try {
-      res.json(await runWorkflow(assertOrchestratorRequest(req.body), llm));
     } catch (error) {
       next(error);
     }
@@ -412,6 +420,30 @@ function parseReceiptQuery(query: Request["query"]): ReceiptListQuery {
     cursor: typeof query.cursor === "string" ? query.cursor : undefined,
     limit: typeof query.limit === "string" ? Math.min(Math.max(Number(query.limit) || 25, 1), 100) : undefined
   };
+}
+
+function parseReceiptAnchorRequest(body: unknown): ReceiptAnchorRequest {
+  const input = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  const errors: string[] = [];
+  if (input.chainId !== 10143) errors.push("chainId must be 10143.");
+  if (!isAddress(input.contractAddress)) errors.push("contractAddress must be a 20-byte hex address.");
+  if (!isTransactionHash(input.txHash)) errors.push("txHash must be a 32-byte hex transaction hash.");
+  if (!isAddress(input.submitter)) errors.push("submitter must be a 20-byte hex address.");
+  if (errors.length) throw new ValidationError(errors);
+  return {
+    chainId: 10143,
+    contractAddress: String(input.contractAddress),
+    txHash: String(input.txHash),
+    submitter: String(input.submitter)
+  };
+}
+
+function isAddress(value: unknown): value is string {
+  return typeof value === "string" && /^0x[a-fA-F0-9]{40}$/.test(value);
+}
+
+function isTransactionHash(value: unknown): value is string {
+  return typeof value === "string" && /^0x[a-fA-F0-9]{64}$/.test(value);
 }
 
 function parseMarketIds(value: unknown): number[] {

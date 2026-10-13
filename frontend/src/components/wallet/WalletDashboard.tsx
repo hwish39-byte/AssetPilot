@@ -2,6 +2,8 @@
 
 import { ErrorState, LoadingSkeleton, EmptyState } from "@/components/shared/State";
 import { DataTable } from "@/components/shared/DataTable";
+import { MetricTile } from "@/components/shared/MetricTile";
+import { Panel } from "@/components/shared/Panel";
 import { RiskBadge } from "@/components/risk/RiskBadge";
 import { RiskRail } from "@/components/risk/RiskRail";
 import { usePerplRisk } from "@/hooks/usePerplRisk";
@@ -17,17 +19,16 @@ export function WalletDashboard() {
     <div className="space-y-5">
       <section>
         <h1 className="text-2xl font-semibold tracking-tight">Wallet Risk</h1>
-        <p className="mt-1 text-sm text-slate-600">Private data comes from the backend Perpl read API key, not necessarily the connected MetaMask wallet.</p>
+        <p className="mt-1 text-sm text-terminal-muted">Private data comes from the backend Perpl read API key configured for this environment. Browser clients do not receive Perpl API secrets.</p>
       </section>
 
       {wallet.wallet.isLoading || risk.isLoading ? <LoadingSkeleton rows={4} /> : null}
       {wallet.wallet.error ? <ErrorState error={wallet.wallet.error} onRetry={() => wallet.wallet.refetch()} title="Perpl monitored account unavailable" /> : null}
 
       <section className="grid gap-4 xl:grid-cols-[1fr_360px]">
-        <div className="rounded-md border border-slate-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-slate-900">Perpl monitored account</h2>
+        <Panel title="Perpl monitored account">
           {wallet.wallet.data ? (
-            <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Summary label="Address" value={shortAddress(wallet.wallet.data.address ?? undefined)} />
               <Summary label="Account ID" value={account ? String(account.accountId) : "Unavailable"} />
               <Summary label="Balance" value={formatUsdValue(account?.balance)} />
@@ -38,11 +39,11 @@ export function WalletDashboard() {
               <Summary label="Gross exposure" value={formatUsdValue(risk.data?.walletMetrics.grossPositionNotional, { compact: true })} />
               <Summary label="Estimated PnL" value={formatUsdValue(risk.data?.walletMetrics.estimatedUnrealizedPnl, { estimated: true })} />
               <Summary label="Effective leverage" value={formatLeverage(risk.data?.walletMetrics.effectiveLeverageEstimate)} />
-            </dl>
+            </div>
           ) : (
             <EmptyState title="Private Perpl data is not configured" description="Configure a backend read API key to unlock monitored wallet data." />
           )}
-        </div>
+        </Panel>
         <RiskRail risk={risk.data} error={risk.error} />
       </section>
 
@@ -86,7 +87,8 @@ export function WalletDashboard() {
           </Section>
 
           <Section title="Performance">
-            <dl className="grid gap-4 rounded-md border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Panel>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <Summary label="Realized PnL" value={formatUsdValue(risk.data.performance.realizedPnl)} />
               <Summary label="Win rate" value={formatPercent(risk.data.performance.winRate)} />
               <Summary label="Profit factor" value={risk.data.performance.profitFactor?.toFixed(2) ?? risk.data.performance.profitFactorUnavailableReason ?? "Unavailable"} />
@@ -95,22 +97,23 @@ export function WalletDashboard() {
               <Summary label="Average holding" value={formatDuration(risk.data.performance.averageHoldingTimeSeconds)} />
               <Summary label="Best market" value={risk.data.performance.bestMarket?.marketSymbol ?? "Unavailable"} />
               <Summary label="Fees" value={formatUsdValue(risk.data.performance.totalFees)} />
-            </dl>
+            </div>
+            </Panel>
           </Section>
 
           <Section title="Risk issues">
             {risk.data.issues.length === 0 ? <EmptyState title="No active risk issues" description="Risk engine did not identify active issues for the monitored account." /> : (
               <div className="space-y-2">
                 {risk.data.issues.map((issue) => (
-                  <div key={issue.code} className="rounded-md border border-slate-200 bg-white p-3">
+                  <Panel key={issue.code} tone={issue.severity === "critical" || issue.severity === "high" ? "danger" : issue.severity === "medium" ? "warning" : "default"}>
                     <div className="flex flex-wrap items-center gap-2">
                       <RiskBadge level={issue.severity} />
-                      <p className="font-semibold text-slate-900">{issue.title}</p>
+                      <p className="font-semibold text-terminal-text">{issue.title}</p>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{issue.description}</p>
-                    <p className="mt-2 text-xs text-slate-500">Evidence: {issue.evidence.join("; ") || "Unavailable"}</p>
-                    <p className="mt-1 text-xs text-slate-500">Suggested action: {issue.suggestedAction}</p>
-                  </div>
+                    <p className="mt-1 text-sm text-terminal-muted">{issue.description}</p>
+                    <p className="mt-2 text-xs text-terminal-subtle">Evidence: {issue.evidence.join("; ") || "Unavailable"}</p>
+                    <p className="mt-1 text-xs text-terminal-subtle">Suggested action: {issue.suggestedAction}</p>
+                  </Panel>
                 ))}
               </div>
             )}
@@ -122,18 +125,13 @@ export function WalletDashboard() {
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-1 font-mono text-sm font-semibold text-slate-950">{value}</dd>
-    </div>
-  );
+  return <MetricTile label={label} value={value} />;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
-      <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+      <h2 className="text-sm font-semibold text-terminal-text">{title}</h2>
       {children}
     </section>
   );

@@ -15,6 +15,9 @@
 - [x] Tests mock external calls.
 - [x] No Perpl key in frontend or public env vars.
 - [x] Perpl receipts clearly identify `onchainEnforced: false` and `onchainAnchored: false`.
+- [x] Optional user-signed ReceiptAnchor contract for receipt hash anchoring.
+- [x] Anchor confirmation receipts preserve original receipt hash validity.
+- [x] MetaMask is used only for anchoring, not Perpl order signing.
 
 ## Verification Commands
 
@@ -33,4 +36,8 @@ npm run perpl:realtime-check
 ```bash
 cd frontend
 npm run build
+```
+
+```bash
+forge test
 ```

@@ -4,10 +4,10 @@
 
 AssetPilot now has two execution tracks:
 
-- Mock tokenized-asset demo through the existing contracts.
-- Perpl Monad testnet flow through backend REST, public market WebSocket, risk analysis, agent review, optional backend trade-key execution, and application receipts.
+- Perpl Monad testnet flow through backend REST/WS, risk analysis, agent review, optional backend Perpl execution, and application receipts.
+- Optional `ReceiptAnchor` contract for user-signed receipt hash anchoring.
 
-The Perpl path does not route orders through `PolicyVault`, `StrategyExecutor`, or `ReceiptRegistry`. Any Perpl receipt is application-layer audit evidence, not onchain enforcement.
+The Perpl path does not route orders through an onchain policy executor. Any Perpl receipt is application-layer audit evidence. Optional anchoring records the receipt hash onchain, not the full receipt and not a policy enforcement action.
 
 ## Perpl Data Path
 
@@ -25,6 +25,16 @@ receipt service
   ↓
 frontend dashboards and trade guard
 ```
+
+## Onchain Receipt Anchoring
+
+`ReceiptAnchor` stores a compact hash proof: receipt hash, workflow hash, previous receipt hash, receipt type, submitter, and timestamp. The full receipt JSON remains in the backend JSONL store and frontend export path.
+
+After a user submits and confirms a Monad testnet anchor transaction, the backend appends an `anchor_confirmation` receipt. That confirmation links the application-layer hash chain to the user-submitted Monad transaction.
+
+The original receipt is not mutated, so its receipt hash remains stable and existing verification semantics continue to hold. Anchoring proves existence and integrity of the receipt hash. It does not prove correctness of Perpl execution, does not make policy enforcement onchain, and does not turn a Perpl order ID into a transaction hash.
+
+`onchainEnforced` remains `false`.
 
 ## Realtime
 

@@ -1,73 +1,75 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2, ShieldAlert, XCircle } from "lucide-react";
-import { RiskBadge } from "@/components/risk/RiskBadge";
+import { MetricTile } from "@/components/shared/MetricTile";
+import { Panel } from "@/components/shared/Panel";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { PerplAgentRiskReview } from "@/types/perpl";
 
-export function RiskDecisionPanel({ review }: { review: PerplAgentRiskReview }) {
+export function RiskDecisionPanel({ review, compact = false }: { review: PerplAgentRiskReview; compact?: boolean }) {
   const Icon = review.decision === "approve" ? CheckCircle2 : review.decision === "revise" ? ShieldAlert : XCircle;
   return (
-    <section className="border border-slate-200 bg-white p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Icon className={`h-4 w-4 ${review.decision === "approve" ? "text-emerald-700" : review.decision === "revise" ? "text-amber-700" : "text-red-700"}`} aria-hidden="true" />
-          <h2 className="text-sm font-semibold text-slate-950">System risk decision</h2>
-        </div>
-        <span className="rounded border border-slate-200 px-2 py-0.5 text-xs font-bold uppercase text-slate-800">{review.decision}</span>
-      </div>
-      <p className="mt-2 text-sm text-slate-700">{review.humanReadableSummary}</p>
-      <p className="mt-1 text-xs font-semibold text-slate-500">Deterministic review. LLM text cannot approve or override this decision.</p>
+    <Panel
+      title={
+        <span className="inline-flex items-center gap-2">
+          <Icon className={`h-4 w-4 ${review.decision === "approve" ? "text-signal-pass" : review.decision === "revise" ? "text-signal-warn" : "text-signal-danger"}`} aria-hidden="true" />
+          Risk decision
+        </span>
+      }
+      description="Deterministic review. LLM text cannot approve or override this decision."
+      actions={<StatusBadge tone={decisionTone(review.decision)}>{review.decision}</StatusBadge>}
+    >
+      <p className="text-sm leading-6 text-terminal-muted">{review.humanReadableSummary}</p>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <Metric label="Before" value={review.riskScoreBefore ?? "Unavailable"} />
-        <Metric label="After" value={review.riskScoreAfter ?? "Unavailable"} />
-        <Metric label="Delta" value={review.scoreDelta ?? "Unavailable"} />
+      <div className={`mt-4 grid gap-3 ${compact ? "grid-cols-3" : "sm:grid-cols-3"}`}>
+        <MetricTile label="Before" value={review.riskScoreBefore ?? "Unavailable"} />
+        <MetricTile label="After" value={review.riskScoreAfter ?? "Unavailable"} tone={review.decision === "approve" ? "success" : "warning"} />
+        <MetricTile label="Delta" value={review.scoreDelta ?? "Unavailable"} tone={review.scoreDelta !== null && review.scoreDelta < 0 ? "success" : "warning"} />
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <div className={`mt-4 grid gap-4 ${compact ? "" : "lg:grid-cols-2"}`}>
         <IssueList title="Blocking issues" issues={review.blockingIssues} empty="No blocking issue." />
         <IssueList title="Warnings" issues={review.warnings} empty="No warning." />
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <IdList title="Approved action IDs" ids={review.approvedActionIds} />
-        <IdList title="Rejected action IDs" ids={review.rejectedActionIds} />
-      </div>
-
-      {review.revisedActions.length ? (
-        <div className="mt-4 border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <div className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden="true" /> Revised actions require rerun</div>
-          <pre className="mt-2 max-h-56 overflow-auto text-xs">{JSON.stringify(review.revisedActions, null, 2)}</pre>
+      {!compact ? (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <IdList title="Approved action IDs" ids={review.approvedActionIds} />
+          <IdList title="Rejected action IDs" ids={review.rejectedActionIds} />
         </div>
       ) : null}
-    </section>
+
+      {review.revisedActions.length ? (
+        <div className="mt-4 rounded-md border border-signal-warn/35 bg-signal-warn/10 p-3 text-sm text-signal-warn">
+          <div className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden="true" /> Revised actions require rerun</div>
+          <pre className="mt-2 max-h-56 overflow-auto rounded bg-terminal-bg p-3 text-xs text-terminal-text">{JSON.stringify(review.revisedActions, null, 2)}</pre>
+        </div>
+      ) : null}
+    </Panel>
   );
 }
 
-function Metric({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="border-l border-slate-200 pl-3">
-      <p className="text-xs font-medium uppercase text-slate-500">{label}</p>
-      <p className="mt-1 font-mono text-base font-semibold text-slate-950">{value}</p>
-    </div>
-  );
+function decisionTone(decision: PerplAgentRiskReview["decision"]) {
+  if (decision === "approve") return "success";
+  if (decision === "revise") return "warning";
+  return "danger";
 }
 
 function IssueList({ title, issues, empty }: { title: string; issues: PerplAgentRiskReview["blockingIssues"]; empty: string }) {
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase text-slate-500">{title}</h3>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-terminal-muted">{title}</h3>
       <ul className="mt-2 space-y-2 text-sm">
         {issues.length ? issues.map((issue, index) => (
-          <li key={`${issue.code}-${index}`} className="border-l border-slate-200 pl-3">
+          <li key={`${issue.code}-${index}`} className="rounded-md border border-terminal-line bg-terminal-raised/35 p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-semibold text-slate-900">{issue.code}</span>
-              <RiskBadge level={issue.severity as never} />
+              <span className="font-mono text-xs font-semibold text-terminal-text">{issue.code}</span>
+              <StatusBadge tone={issue.severity === "critical" || issue.severity === "high" ? "danger" : "warning"}>{issue.severity}</StatusBadge>
             </div>
-            <p className="mt-1 text-slate-700">{issue.message}</p>
-            {issue.suggestedFix ? <p className="mt-1 text-xs text-slate-500">Suggested fix: {issue.suggestedFix}</p> : null}
+            <p className="mt-1 text-terminal-muted">{issue.message}</p>
+            {issue.suggestedFix ? <p className="mt-1 text-xs text-terminal-subtle">Suggested fix: {issue.suggestedFix}</p> : null}
           </li>
-        )) : <li className="text-slate-500">{empty}</li>}
+        )) : <li className="text-terminal-muted">{empty}</li>}
       </ul>
     </div>
   );
@@ -76,8 +78,8 @@ function IssueList({ title, issues, empty }: { title: string; issues: PerplAgent
 function IdList({ title, ids }: { title: string; ids: string[] }) {
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase text-slate-500">{title}</h3>
-      <p className="mt-2 break-words font-mono text-xs text-slate-700">{ids.length ? ids.join(", ") : "None"}</p>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-terminal-muted">{title}</h3>
+      <p className="mt-2 break-words font-mono text-xs text-terminal-muted">{ids.length ? ids.join(", ") : "None"}</p>
     </div>
   );
 }

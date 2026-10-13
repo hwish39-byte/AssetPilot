@@ -476,6 +476,11 @@ export interface PerplAgentPolicy {
   expiresAt: string;
 }
 
+export interface PerplPolicyHashResponse {
+  policyHash: string;
+  canonicalPolicy: PerplAgentPolicy;
+}
+
 export interface PerplAgentWorkflowRequest {
   userGoal: string;
   policy: PerplAgentPolicy;
@@ -757,7 +762,8 @@ export type PerplReceiptType =
   | "order_update"
   | "order_finalized"
   | "execution_rejected"
-  | "reconciliation";
+  | "reconciliation"
+  | "anchor_confirmation";
 
 export interface PerplReceipt {
   schemaVersion: "assetpilot-perpl-receipt-v1";
@@ -778,8 +784,8 @@ export interface PerplReceipt {
   receiptLayer: "application";
   policyEnforcement: "backend_pre_submission";
   onchainEnforced: false;
-  onchainAnchored: false;
-  onchainTxHash: null;
+  onchainAnchored: boolean;
+  onchainTxHash: string | null;
   source: "assetpilot";
   dataProvenance: {
     dataSources: string[];
@@ -801,6 +807,12 @@ export interface PerplReceipt {
   orderStatus?: string;
   currentStatus?: string;
   finalStatus?: string;
+  anchoredReceiptId?: string;
+  anchoredReceiptHash?: string;
+  contractAddress?: string;
+  txHash?: string;
+  submitter?: string;
+  anchoredAt?: string;
 }
 
 export interface PerplReceiptListResponse {
@@ -814,8 +826,27 @@ export interface PerplReceiptVerification {
   parentValid: boolean;
   signaturePresent: boolean;
   signatureValid: boolean | null;
-  onchainAnchored: false;
+  onchainAnchored: boolean;
   verificationErrors: string[];
+}
+
+export interface PerplReceiptAnchorStatus {
+  receiptId: string;
+  receiptHash: string;
+  anchored: boolean;
+  chainId?: 10143;
+  contractAddress?: string;
+  txHash?: string;
+  submitter?: string;
+  anchoredAt?: string;
+  anchorReceiptId?: string;
+}
+
+export interface PerplReceiptAnchorRequest {
+  chainId: 10143;
+  contractAddress: string;
+  txHash: string;
+  submitter: string;
 }
 
 export interface PerplReceiptChainVerification {

@@ -156,7 +156,7 @@ export class PerplRealtimeService extends EventEmitter {
     const result = this.sequence.observe("market-state", message.sn);
     if (result.status === "duplicate") return;
     if (result.status === "gap") {
-      this.resyncAll("market-state sequence gap");
+      void this.resyncAll("market-state sequence gap");
       return;
     }
     const updatedAt = new Date(this.nowMs()).toISOString();
@@ -176,7 +176,7 @@ export class PerplRealtimeService extends EventEmitter {
     const result = this.sequence.observe("funding", message.sn);
     if (result.status === "duplicate") return;
     if (result.status === "gap") {
-      this.resyncAll("funding sequence gap");
+      void this.resyncAll("funding sequence gap");
       return;
     }
     const updatedAt = new Date(this.nowMs()).toISOString();
@@ -195,12 +195,12 @@ export class PerplRealtimeService extends EventEmitter {
     const result = this.sequence.observe(`order-book:${marketId}`, message.sn);
     if (result.status === "duplicate") return;
     if (result.status === "gap") {
-      this.resyncMarket(marketId, "order book sequence gap");
+      void this.resyncMarket(marketId, "order book sequence gap");
       return;
     }
     const state = this.store.applyWsOrderBook(marketId, message, new Date(this.nowMs()).toISOString());
     if (!state) {
-      this.resyncMarket(marketId, "order book update arrived before base snapshot");
+      void this.resyncMarket(marketId, "order book update arrived before base snapshot");
       return;
     }
     this.emitEvent({ event: "orderbook", data: state });
@@ -243,16 +243,26 @@ export class PerplRealtimeService extends EventEmitter {
   private async resyncAll(reason: string): Promise<void> {
     for (const marketId of this.store.getMarketIds()) this.store.markMarketStale(marketId);
     this.emitEvent({ event: "resync", data: { marketId: 0, reason, at: new Date(this.nowMs()).toISOString() } });
-    await this.ensureSnapshots(this.store.getMarketIds().slice(0, this.config.maxMarketsPerClient), ["ticker", "funding", "orderbook"]);
-    this.sequence.reset();
-    this.setStatus("degraded");
+    try {
+      await this.ensureSnapshots(this.store.getMarketIds().slice(0, this.config.maxMarketsPerClient), ["ticker", "funding", "orderbook"]);
+      this.sequence.reset();
+    } catch (error) {
+      this.recordError("PERPL_REALTIME_RESYNC_FAILED", error instanceof Error ? error.message : "Realtime REST resync failed.");
+    } finally {
+      this.setStatus("degraded");
+    }
   }
 
   private async resyncMarket(marketId: number, reason: string): Promise<void> {
     this.store.markMarketStale(marketId);
     this.emitEvent({ event: "resync", data: { marketId, reason, at: new Date(this.nowMs()).toISOString() } });
-    await this.ensureSnapshots([marketId], ["ticker", "funding", "orderbook"]);
-    this.sequence.reset(`order-book:${marketId}`);
+    try {
+      await this.ensureSnapshots([marketId], ["ticker", "funding", "orderbook"]);
+      this.sequence.reset(`order-book:${marketId}`);
+    } catch (error) {
+      this.recordError("PERPL_REALTIME_RESYNC_FAILED", error instanceof Error ? error.message : "Realtime REST resync failed.");
+      this.setStatus("degraded");
+    }
   }
 
   private scheduleReconnect(): void {

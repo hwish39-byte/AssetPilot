@@ -1,0 +1,10 @@
+{
+  "network": "monad-testnet",
+  "chainId": 10143,
+  "contractName": "ReceiptAnchor",
+  "contractAddress": "",
+  "deployer": "",
+  "deployedAt": "",
+  "txHash": "",
+  "notes": "Receipt hash anchoring only; not onchain policy enforcement."
+}

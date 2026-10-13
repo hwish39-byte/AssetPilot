@@ -84,16 +84,44 @@ test("websocket sequence gap marks service degraded and emits resync", async () 
   }
 });
 
-function realtimeService(fakeWs: FakeWebSocket) {
+test("websocket resync REST failure is reported without crashing service", async () => {
+  const fakeWs = new FakeWebSocket();
+  const service = realtimeService(fakeWs, mockFetch({ failContextAfter: 2 }));
+  const events: string[] = [];
+  const release = await service.subscribe({
+    marketIds: [1],
+    channels: ["ticker"],
+    listener: (event) => events.push(event.event)
+  });
+
+  try {
+    fakeWs.open();
+    fakeWs.message({ mt: 6, subs: [{ stream: "market-state@10143", sid: 1, status: { code: 0 } }] });
+    fakeWs.message({ mt: 9, sn: 1, d: { "1": sampleContext().markets[0]!.state } });
+    fakeWs.message({ mt: 9, sn: 3, d: { "1": sampleContext().markets[0]!.state } });
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(events.includes("resync"), true);
+    assert.equal(events.includes("error"), true);
+    assert.equal(service.getStatus().status, "degraded");
+    assert.equal(service.getStatus().lastError?.code, "PERPL_REALTIME_RESYNC_FAILED");
+  } finally {
+    release();
+  }
+});
+
+function realtimeService(fakeWs: FakeWebSocket, fetchImpl: PerplFetch = mockFetch()) {
   const publicClient = new PerplPublicClient({
     apiUrl: PERPL_TESTNET_DEFAULTS.apiUrl,
-    fetchImpl: mockFetch(),
+    fetchImpl,
     sleep: async () => {}
   });
   const perplService = new PerplService({
     config: PERPL_TESTNET_DEFAULTS,
     publicClient,
-    nowMs: () => 1_789_999_999_000
+    nowMs: () => 1_789_999_999_000,
+    contextTtlMs: 0
   });
   return new PerplRealtimeService({
     perplService,
@@ -151,10 +179,17 @@ class FakeWebSocket implements PerplWebSocketLike {
   }
 }
 
-function mockFetch(): PerplFetch {
+function mockFetch(options: { failContextAfter?: number } = {}): PerplFetch {
+  let contextRequests = 0;
   return (async (input: URL | RequestInfo) => {
     const url = String(input);
-    if (url.endsWith("/v1/pub/context")) return jsonResponse(sampleContext());
+    if (url.endsWith("/v1/pub/context")) {
+      contextRequests += 1;
+      if (options.failContextAfter !== undefined && contextRequests > options.failContextAfter) {
+        return jsonResponse({ error: "rate limited" }, { status: 429 });
+      }
+      return jsonResponse(sampleContext());
+    }
     if (url.includes("/v1/market-data/1/book")) return jsonResponse(sampleBook());
     return jsonResponse({}, { status: 404 });
   }) as PerplFetch;

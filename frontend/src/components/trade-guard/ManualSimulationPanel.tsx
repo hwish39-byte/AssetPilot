@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { RotateCcw, ShieldCheck } from "lucide-react";
+import { Button } from "@/components/shared/Button";
+import { Panel } from "@/components/shared/Panel";
 import { ErrorState } from "@/components/shared/State";
 import { perplApi } from "@/lib/api";
 import type { PerplOrder, PerplPosition, PerplRiskAction, PerplRiskSimulationResult } from "@/types/perpl";
@@ -47,16 +49,20 @@ export function ManualSimulationPanel({ positions, orders }: { positions: PerplP
 
   return (
     <section className="grid gap-4 lg:grid-cols-[360px_1fr]">
-      <form className="border border-slate-200 bg-white p-4" onSubmit={(event) => { event.preventDefault(); void run(); }}>
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-cyan-700" aria-hidden="true" />
-          <h2 className="text-sm font-semibold text-slate-950">Manual simulation</h2>
-        </div>
-        <p className="mt-1 text-xs text-slate-600">Uses real Perpl positionId/orderId. It never creates user confirmation or an execution plan.</p>
+      <Panel
+        title={
+          <span className="inline-flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-signal-live" aria-hidden="true" />
+            Manual simulation
+          </span>
+        }
+        description="Uses real Perpl positionId/orderId. It never creates user confirmation or an execution plan."
+      >
+      <form onSubmit={(event) => { event.preventDefault(); void run(); }}>
 
         <label className="mt-4 block text-sm">
-          <span className="font-medium text-slate-700">Action type</span>
-          <select value={type} onChange={(event) => { setType(event.target.value as ActionType); dirty(); }} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-600">
+          <span className="font-medium text-terminal-muted">Action type</span>
+          <select value={type} onChange={(event) => { setType(event.target.value as ActionType); dirty(); }} className={inputClass}>
             <option value="hold">Hold</option>
             <option value="reduce_position">Reduce position</option>
             <option value="close_position">Close position</option>
@@ -67,8 +73,8 @@ export function ManualSimulationPanel({ positions, orders }: { positions: PerplP
 
         {(type === "reduce_position" || type === "close_position") ? (
           <label className="mt-4 block text-sm">
-            <span className="font-medium text-slate-700">Position</span>
-            <select value={positionId} onChange={(event) => { setPositionId(event.target.value); dirty(); }} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-600">
+            <span className="font-medium text-terminal-muted">Position</span>
+            <select value={positionId} onChange={(event) => { setPositionId(event.target.value); dirty(); }} className={inputClass}>
               <option value="">Select a position</option>
               {positions.map((position) => <option key={position.positionId} value={position.positionId}>{position.marketSymbol ?? position.marketId} {position.side ?? ""} #{position.positionId}</option>)}
             </select>
@@ -77,8 +83,8 @@ export function ManualSimulationPanel({ positions, orders }: { positions: PerplP
 
         {type === "cancel_order" ? (
           <label className="mt-4 block text-sm">
-            <span className="font-medium text-slate-700">Order</span>
-            <select value={orderId} onChange={(event) => { setOrderId(event.target.value); dirty(); }} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-600">
+            <span className="font-medium text-terminal-muted">Order</span>
+            <select value={orderId} onChange={(event) => { setOrderId(event.target.value); dirty(); }} className={inputClass}>
               <option value="">Select an order</option>
               {orders.map((order) => <option key={order.orderId} value={order.orderId}>{order.marketSymbol ?? order.marketId} order #{order.orderId}</option>)}
             </select>
@@ -87,32 +93,33 @@ export function ManualSimulationPanel({ positions, orders }: { positions: PerplP
 
         {type === "reduce_position" ? (
           <label className="mt-4 block text-sm">
-            <span className="font-medium text-slate-700">Reduction percentage</span>
-            <input type="range" min={1} max={99} value={percentage} onChange={(event) => { setPercentage(Number(event.target.value)); dirty(); }} className="mt-2 w-full" />
-            <input type="number" min={1} max={99} value={percentage} onChange={(event) => { setPercentage(Number(event.target.value)); dirty(); }} className="mt-2 w-24 rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-600" />
+            <span className="font-medium text-terminal-muted">Reduction percentage</span>
+            <input type="range" min={1} max={99} value={percentage} onChange={(event) => { setPercentage(Number(event.target.value)); dirty(); }} className="mt-2 w-full accent-cyan-400" />
+            <input type="number" min={1} max={99} value={percentage} onChange={(event) => { setPercentage(Number(event.target.value)); dirty(); }} className={`${inputClass} w-24`} />
           </label>
         ) : null}
 
         {type === "add_collateral" ? (
           <label className="mt-4 block text-sm">
-            <span className="font-medium text-slate-700">Collateral amount</span>
-            <input value={amount} onChange={(event) => { setAmount(event.target.value); dirty(); }} inputMode="decimal" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-600" />
+            <span className="font-medium text-terminal-muted">Collateral amount</span>
+            <input value={amount} onChange={(event) => { setAmount(event.target.value); dirty(); }} inputMode="decimal" className={inputClass} />
           </label>
         ) : null}
 
         <div className="mt-5 flex flex-wrap gap-2">
-          <button type="submit" disabled={!canRun || running} className="min-h-10 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-cyan-600">
+          <Button type="submit" disabled={!canRun || running} variant="primary">
             {running ? "Simulating..." : "Run simulation"}
-          </button>
-          <button type="button" onClick={() => { setResult(null); setStale(false); setError(null); }} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-cyan-600">
+          </Button>
+          <Button type="button" onClick={() => { setResult(null); setStale(false); setError(null); }} variant="ghost">
             <RotateCcw className="h-4 w-4" aria-hidden="true" />
             Reset
-          </button>
+          </Button>
         </div>
       </form>
+      </Panel>
 
       <div>
-        {stale ? <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">Manual simulation result is stale because inputs changed.</p> : null}
+        {stale ? <p className="mb-3 rounded border border-signal-warn/35 bg-signal-warn/10 px-3 py-2 text-sm font-medium text-signal-warn">Manual simulation result is stale because inputs changed.</p> : null}
         {error ? <div className="mb-3"><ErrorState error={error} title="Manual simulation failed" /></div> : null}
         <RiskComparison simulation={result} title="Manual simulation comparison" />
       </div>
@@ -124,3 +131,5 @@ function positiveDecimal(value: string) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0;
 }
+
+const inputClass = "mt-1 w-full rounded-md border border-terminal-line bg-terminal-raised px-3 py-2 text-sm text-terminal-text focus:outline-none focus:ring-2 focus:ring-signal-live";

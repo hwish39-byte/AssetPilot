@@ -98,6 +98,19 @@ test("receipt API lists, returns detail, verifies, exports, paginates, filters, 
   assert.equal((await dispatch(app, "GET", "/api/perpl/receipts/missing")).status, 404);
 });
 
+test("policy hash API matches receipt policy hash and rejects invalid policy", async () => {
+  const app = createApp();
+  const policy = { ...workflow("approve").request.policy, maxReductionPercentage: 0.5 };
+
+  const response = await dispatch(app, "POST", "/api/perpl/policy/hash", policy);
+  const payload = JSON.parse(response.body) as { policyHash: string; canonicalPolicy: PerplAgentWorkflowRequest["policy"] };
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.policyHash, stableHash(policy));
+  assert.deepEqual(payload.canonicalPolicy, policy);
+  assert.equal((await dispatch(app, "POST", "/api/perpl/policy/hash", { ...policy, allowedActions: ["withdraw"] })).status, 400);
+});
+
 test("receipt service records approve, revise, reject, confirmation, intent, unknown update, and reconciliation append-only", async () => {
   const dir = await mkdtemp(join(tmpdir(), "assetpilot-receipts-flow-"));
   const service = new ReceiptService({ store: new ReceiptStore({ path: join(dir, "receipts.jsonl") }) });
@@ -140,6 +153,32 @@ test("receipt service records approve, revise, reject, confirmation, intent, unk
   assert.equal(service.getReceipt(update.receiptId)?.receiptType, "order_update");
   assert.equal(service.getReceipt(reconciliation.receiptId)?.receiptType, "reconciliation");
   assert.notEqual(update.receiptHash, reconciliation.receiptHash);
+});
+
+test("receipt anchor confirmation appends metadata without mutating anchored receipt", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "assetpilot-receipts-anchor-"));
+  const service = new ReceiptService({ store: new ReceiptStore({ path: join(dir, "receipts.jsonl") }) });
+  const original = await service.appendRiskReviewReceipt(workflow("approve").request, workflow("approve").response);
+  const originalHash = original.receiptHash;
+
+  const status = await service.appendAnchorConfirmationReceipt(original.receiptId, {
+    chainId: 10143,
+    contractAddress: "0x" + "1".repeat(40),
+    txHash: "0x" + "2".repeat(64),
+    submitter: "0x" + "3".repeat(40)
+  });
+
+  const storedOriginal = service.getReceipt(original.receiptId);
+  const anchorReceipt = status.anchorReceiptId ? service.getReceipt(status.anchorReceiptId) : null;
+  assert.equal(status.anchored, true);
+  assert.equal(status.receiptHash, originalHash);
+  assert.equal(storedOriginal?.receiptHash, originalHash);
+  assert.equal(storedOriginal?.onchainAnchored, false);
+  assert.equal(anchorReceipt?.receiptType, "anchor_confirmation");
+  assert.equal(anchorReceipt?.parentReceiptId, original.receiptId);
+  assert.equal(service.getAnchorStatus(original.receiptId).txHash, "0x" + "2".repeat(64));
+  assert.equal((await service.verifyReceipt(original.receiptId)).onchainAnchored, true);
+  assert.equal(service.verifyChain().valid, true);
 });
 
 function finalizedReceipt(sequenceNumber: number, previousReceiptHash: string | null, parentReceiptId: string | null, receiptType: "risk_review" | "user_confirmation" = "risk_review"): RiskReviewReceipt {
@@ -311,11 +350,13 @@ function capabilities(): TradingCapabilities {
   };
 }
 
-async function dispatch(app: ReturnType<typeof createApp>, method: string, url: string): Promise<{ status: number; body: string }> {
+async function dispatch(app: ReturnType<typeof createApp>, method: string, url: string, body?: unknown): Promise<{ status: number; body: string }> {
   const req = new Readable({ read() {} }) as Readable & { method: string; url: string; headers: Record<string, string> };
   req.method = method;
   req.url = url;
-  req.headers = {};
+  const payload = body === undefined ? null : JSON.stringify(body);
+  req.headers = payload === null ? {} : { "content-type": "application/json", "content-length": String(Buffer.byteLength(payload)) };
+  if (payload !== null) req.push(payload);
   req.push(null);
   const chunks: Buffer[] = [];
   const res = new Writable({

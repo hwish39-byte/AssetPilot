@@ -12,7 +12,8 @@ export type ReceiptType =
   | "order_update"
   | "order_finalized"
   | "execution_rejected"
-  | "reconciliation";
+  | "reconciliation"
+  | "anchor_confirmation";
 
 export interface ReceiptBase {
   schemaVersion: typeof RECEIPT_SCHEMA_VERSION;
@@ -196,6 +197,20 @@ export interface ReconciliationReceipt extends ReceiptBase {
   reconciledAt: string;
 }
 
+export interface AnchorConfirmationReceipt extends Omit<ReceiptBase, "receiptType" | "onchainAnchored" | "onchainTxHash"> {
+  receiptType: "anchor_confirmation";
+  parentReceiptId: string;
+  anchoredReceiptId: string;
+  anchoredReceiptHash: string;
+  chainId: 10143;
+  contractAddress: string;
+  txHash: string;
+  submitter: string;
+  anchoredAt: string;
+  onchainAnchored: true;
+  onchainTxHash: string;
+}
+
 export type PerplReceipt =
   | RiskReviewReceipt
   | UserConfirmationReceipt
@@ -204,7 +219,27 @@ export type PerplReceipt =
   | OrderUpdateReceipt
   | OrderFinalizedReceipt
   | ExecutionRejectedReceipt
-  | ReconciliationReceipt;
+  | ReconciliationReceipt
+  | AnchorConfirmationReceipt;
+
+export interface ReceiptAnchorRequest {
+  chainId: 10143;
+  contractAddress: string;
+  txHash: string;
+  submitter: string;
+}
+
+export interface ReceiptAnchorStatus {
+  receiptId: string;
+  receiptHash: string;
+  anchored: boolean;
+  chainId?: 10143;
+  contractAddress?: string;
+  txHash?: string;
+  submitter?: string;
+  anchoredAt?: string;
+  anchorReceiptId?: string;
+}
 
 export interface ReceiptVerificationResult {
   receiptHashValid: boolean;
@@ -212,7 +247,7 @@ export interface ReceiptVerificationResult {
   parentValid: boolean;
   signaturePresent: boolean;
   signatureValid: boolean | null;
-  onchainAnchored: false;
+  onchainAnchored: boolean;
   verificationErrors: string[];
 }
 

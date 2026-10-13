@@ -1,5 +1,3 @@
-import { keccak256, stringToHex, type Hex } from "viem";
-
 export function shortAddress(value?: string) {
   if (!value) return "-";
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
@@ -80,8 +78,8 @@ export function formatDuration(seconds: number | null | undefined) {
 
 export function signedClass(value: string | number | null | undefined) {
   const numeric = toFiniteNumber(value);
-  if (numeric === null || numeric === 0) return "text-slate-700";
-  return numeric > 0 ? "text-emerald-700" : "text-red-700";
+  if (numeric === null || numeric === 0) return "text-terminal-muted";
+  return numeric > 0 ? "text-signal-pass" : "text-signal-danger";
 }
 
 export function toFiniteNumber(value: string | number | null | undefined) {
@@ -92,10 +90,6 @@ export function toFiniteNumber(value: string | number | null | undefined) {
 
 export function nowTime() {
   return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
-}
-
-export function hashObject(value: unknown): Hex {
-  return keccak256(stringToHex(JSON.stringify(value)));
 }
 
 export function sleep(ms: number) {

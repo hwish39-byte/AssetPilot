@@ -15,6 +15,8 @@ import type { PublicExecutionIntent, TradingCapabilities, PerplOrderSubmissionRe
 import type {
   ChainVerificationResult,
   PerplReceipt,
+  ReceiptAnchorRequest,
+  ReceiptAnchorStatus,
   ReceiptListQuery,
   ReceiptListResponse,
   ReceiptVerificationResult
@@ -174,12 +176,81 @@ export class ReceiptService {
     return this.finalizeAndAppend(receipt);
   }
 
+  async appendAnchorConfirmationReceipt(receiptId: string, anchor: ReceiptAnchorRequest): Promise<ReceiptAnchorStatus> {
+    await this.store.initialize();
+    const anchoredReceipt = this.store.get(receiptId);
+    if (!anchoredReceipt) throw new ReceiptNotFoundError(receiptId);
+    const existing = this.getAnchorStatus(receiptId);
+    if (existing.anchored) return existing;
+    const anchoredAt = new Date(this.nowMs()).toISOString();
+    const receipt: PerplReceipt = {
+      ...(await this.nextBase(anchoredReceipt.workflowId, anchoredReceipt.receiptId, {
+        perplNetwork: "monad-testnet",
+        perplChainId: 10143,
+        dataSources: ["assetpilot-receipt-anchor", "user-wallet-transaction"],
+        riskSnapshotFetchedAt: null,
+        marketsFetchedAt: null,
+        walletFetchedAt: null,
+        positionsCount: null,
+        ordersCount: null,
+        historyComplete: null,
+        dataFreshness: { anchoredAt },
+        warnings: ["Anchor confirmation records a user-submitted transaction hash. It does not make policy enforcement onchain."]
+      })),
+      receiptType: "anchor_confirmation",
+      parentReceiptId: anchoredReceipt.receiptId,
+      anchoredReceiptId: anchoredReceipt.receiptId,
+      anchoredReceiptHash: anchoredReceipt.receiptHash,
+      chainId: anchor.chainId,
+      contractAddress: anchor.contractAddress,
+      txHash: anchor.txHash,
+      submitter: anchor.submitter,
+      anchoredAt,
+      onchainAnchored: true,
+      onchainTxHash: anchor.txHash
+    };
+    const confirmation = await this.finalizeAndAppend(receipt);
+    return {
+      receiptId: anchoredReceipt.receiptId,
+      receiptHash: anchoredReceipt.receiptHash,
+      anchored: true,
+      chainId: anchor.chainId,
+      contractAddress: anchor.contractAddress,
+      txHash: anchor.txHash,
+      submitter: anchor.submitter,
+      anchoredAt,
+      anchorReceiptId: confirmation.receiptId
+    };
+  }
+
   getReceipt(receiptId: string): PerplReceipt | null {
     return this.store.get(receiptId);
   }
 
   listReceipts(query: ReceiptListQuery): ReceiptListResponse {
     return this.store.list(query);
+  }
+
+  getAnchorStatus(receiptId: string): ReceiptAnchorStatus {
+    const receipt = this.store.get(receiptId);
+    if (!receipt) throw new ReceiptNotFoundError(receiptId);
+    const anchor = this.store
+      .all()
+      .find((item) => item.receiptType === "anchor_confirmation" && (item.anchoredReceiptId === receipt.receiptId || item.anchoredReceiptHash === receipt.receiptHash));
+    if (!anchor || anchor.receiptType !== "anchor_confirmation") {
+      return { receiptId: receipt.receiptId, receiptHash: receipt.receiptHash, anchored: false };
+    }
+    return {
+      receiptId: receipt.receiptId,
+      receiptHash: receipt.receiptHash,
+      anchored: true,
+      chainId: anchor.chainId,
+      contractAddress: anchor.contractAddress,
+      txHash: anchor.txHash,
+      submitter: anchor.submitter,
+      anchoredAt: anchor.anchoredAt,
+      anchorReceiptId: anchor.receiptId
+    };
   }
 
   async verifyReceipt(receiptId: string): Promise<ReceiptVerificationResult> {
@@ -195,6 +266,7 @@ export class ReceiptService {
     const chainLinkValid = index === 0 ? receipt.previousReceiptHash === null : receipt.previousReceiptHash === previous?.receiptHash;
     const parentValid = !receipt.parentReceiptId || Boolean(parent);
     const signatureValid = await verifyReceiptSignature(receipt.receiptHash, receipt.signature, this.signing);
+    const anchorStatus = this.getAnchorStatus(receiptId);
     const verificationErrors = [
       ...(receiptHashValid ? [] : ["receipt hash mismatch"]),
       ...(chainLinkValid ? [] : ["chain link mismatch"]),
@@ -207,7 +279,7 @@ export class ReceiptService {
       parentValid,
       signaturePresent: Boolean(receipt.signature),
       signatureValid,
-      onchainAnchored: false,
+      onchainAnchored: anchorStatus.anchored,
       verificationErrors
     };
   }
@@ -265,3 +337,13 @@ function emptyCapabilities(): TradingCapabilities {
 }
 
 export { workflowPlanHash };
+
+export class ReceiptNotFoundError extends Error {
+  readonly receiptId: string;
+
+  constructor(receiptId: string) {
+    super(`Receipt ${receiptId} not found.`);
+    this.name = "ReceiptNotFoundError";
+    this.receiptId = receiptId;
+  }
+}

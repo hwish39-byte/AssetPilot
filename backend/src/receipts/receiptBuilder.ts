@@ -142,7 +142,7 @@ export function policySummary(request: PerplAgentWorkflowRequest, serverHardLimi
     "no_signature"
   ];
   return {
-    policyHash: stableHash(request.policy),
+    policyHash: policyHashForPolicy(request.policy),
     policySnapshot: request.policy,
     policyExpiry: request.policy.expiresAt,
     enforcementLayer: "backend_pre_submission",
@@ -151,6 +151,10 @@ export function policySummary(request: PerplAgentWorkflowRequest, serverHardLimi
     failedChecks: [],
     serverHardLimits
   };
+}
+
+export function policyHashForPolicy(policy: PerplAgentWorkflowRequest["policy"]): string {
+  return stableHash(policy);
 }
 
 export function intentProvenance(intent: PublicExecutionIntent, capabilities: TradingCapabilities): ReceiptDataProvenance {
