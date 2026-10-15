@@ -22,17 +22,18 @@ The contract does not execute Perpl trades, does not enforce AssetPilot policy, 
 
 The contract does not store the full policy, does not execute strategies, does not custody funds, and does not enforce risk limits onchain. It is a public audit proof for a user-signed policy hash commitment.
 
-## Test
+## Build and Test
+
+Install Foundry, then run from the repository root:
 
 ```bash
+forge build
 forge test
 ```
 
-The repository includes a tiny local `forge-std` compatibility shim for the tests and deployment script. If you prefer the upstream library, replace `contracts/lib/forge-std` with:
+The repository includes four project-maintained compatibility files under `contracts/lib/forge-std/src/`, explicitly allowed by `.gitignore`. They provide the assertions, cheatcode declarations, script base, and console overloads used by the current tests and deployment scripts. These files are versioned with the project, so a normal clone requires no `forge install` or submodule initialization.
 
-```bash
-forge install foundry-rs/forge-std
-```
+This is a minimal compatibility layer, not the full upstream forge-std distribution. See its [scope and setup notes](lib/forge-std/README.md) before adding new imports. Foundry may download the configured Solidity 0.8.24 compiler on first use; once installed, both commands also support `--offline`.
 
 ## Deploy
 

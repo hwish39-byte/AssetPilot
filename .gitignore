@@ -6,7 +6,16 @@
 !frontend/.env.example
 contracts/cache/
 contracts/out/
-contracts/lib/
+contracts/lib/*
+!contracts/lib/forge-std/
+contracts/lib/forge-std/*
+!contracts/lib/forge-std/README.md
+!contracts/lib/forge-std/src/
+contracts/lib/forge-std/src/*
+!contracts/lib/forge-std/src/Script.sol
+!contracts/lib/forge-std/src/Test.sol
+!contracts/lib/forge-std/src/Vm.sol
+!contracts/lib/forge-std/src/console2.sol
 broadcast/
 cache/
 backend/node_modules/
@@ -14,3 +23,4 @@ backend/dist/
 frontend/node_modules/
 frontend/.next/
 frontend/*.tsbuildinfo
+.codex-build/
